@@ -1,159 +1,154 @@
-// city.js - procedural Solmarina: four districts, streets, parks, a bay and a bridge.
-// One job: build the whole city from the fixed seed and answer collision and
-// district questions. Nothing here draws; render.js does that.
+// Solmarina Heat - the procedural city.
+// One fixed seed places every building and tree, so the city never changes.
 
-import { CONFIG } from './config.js';
-import { makeRng, range, rangeInt, pick, chance } from './random.js';
+import {
+  SEED,
+  BLOCK,
+  ROAD,
+  CELL,
+  COLS,
+  ROWS,
+  CITY_W,
+  CITY_H,
+  BAY_H,
+  BEACH_H,
+  WORLD_W,
+  WORLD_H,
+  BRIDGE_ROAD,
+  PARKS,
+  DISTRICTS,
+  blockX,
+  blockY,
+  roadX,
+  districtAt,
+} from "./config.js";
+import { makeRng } from "./random.js";
 
-export const DISTRICTS = [
-  {
-    id: 'marina',
-    name: 'Marina Bay',
-    ground: '#9aa5a8',
-    road: '#3d4148',
-    buildings: ['#7d8aa0', '#6b7c94', '#8fa3b8', '#5d6e84'],
-    roof: '#4a5568',
-    tall: true,
-  },
-  {
-    id: 'palmetto',
-    name: 'Palmetto Strip',
-    ground: '#b5a88f',
-    road: '#45403a',
-    buildings: ['#d08a4e', '#c97e5a', '#e0a866', '#b56b45'],
-    roof: '#7a4a2e',
-    tall: false,
-  },
-  {
-    id: 'brisas',
-    name: 'Las Brisas',
-    ground: '#8fae7a',
-    road: '#3f4a3c',
-    buildings: ['#e8dcc0', '#dcc9a3', '#f0e6cc', '#cbb98f'],
-    roof: '#8a6b4a',
-    tall: false,
-  },
-  {
-    id: 'cannery',
-    name: 'Old Cannery',
-    ground: '#8d8578',
-    road: '#3a3a38',
-    buildings: ['#7a7268', '#6b655c', '#8a7f70', '#5f594f'],
-    roof: '#4c463e',
-    tall: false,
-  },
-];
-
-const PITCH = CONFIG.blockSize + CONFIG.roadWidth; // 208
-const COLS = 12;
-const ROWS = 8;
-const GRID_X = (CONFIG.cityWidth - COLS * PITCH) / 2; // 32
-const GRID_Y = (CONFIG.cityHeight - ROWS * PITCH) / 2; // 24
-
-// The bay runs along the south edge; the bridge crosses it to a small beach.
-// The bridge sits on the central north-south road (road centre x = 1280).
-const WATER_TOP = 1728;
-const BEACH = { x: 1216, y: 1840, w: 128, h: 80 };
-const BRIDGE = { x: 1256, y: WATER_TOP, w: 48, h: 112 };
-
-export function generateCity(seed) {
-  const rng = makeRng(seed);
-  const city = {
-    width: CONFIG.cityWidth,
-    height: CONFIG.cityHeight,
-    districts: DISTRICTS,
-    buildings: [],
-    parks: [],
-    water: { x: 0, y: WATER_TOP, w: CONFIG.cityWidth, h: CONFIG.cityHeight - WATER_TOP },
-    beach: BEACH,
-    bridge: BRIDGE,
-    grid: { x: GRID_X, y: GRID_Y, cols: COLS, rows: ROWS, pitch: PITCH },
-  };
-
-  const districtAtCell = (col, row) => {
-    if (row < ROWS / 2) return col < COLS / 2 ? DISTRICTS[0] : DISTRICTS[1];
-    return col < COLS / 2 ? DISTRICTS[2] : DISTRICTS[3];
-  };
-
-  // Two park blocks, one downtown and one residential.
-  const parkCells = new Set(['3,1', '2,5']);
-
-  for (let row = 0; row < ROWS; row++) {
-    for (let col = 0; col < COLS; col++) {
-      const district = districtAtCell(col, row);
-      const bx = GRID_X + col * PITCH + CONFIG.roadWidth / 2;
-      const by = GRID_Y + row * PITCH + CONFIG.roadWidth / 2;
-      const bw = CONFIG.blockSize;
-      const bh = CONFIG.blockSize;
-      if (parkCells.has(col + ',' + row)) {
-        const trees = [];
-        const n = rangeInt(rng, 6, 9);
-        for (let i = 0; i < n; i++) {
-          trees.push({
-            x: range(rng, bx + 16, bx + bw - 16),
-            y: range(rng, by + 16, by + bh - 16),
-            r: range(rng, 7, 12),
-          });
-        }
-        city.parks.push({ x: bx, y: by, w: bw, h: bh, district: district.id, trees });
-        continue;
-      }
-      const count = district.tall ? rangeInt(rng, 1, 2) : rangeInt(rng, 2, 3);
-      for (let i = 0; i < count; i++) {
-        const w = range(rng, 44, district.tall ? 90 : 70);
-        const h = range(rng, 44, district.tall ? 110 : 70);
-        const x = range(rng, bx + 6, bx + bw - w - 6);
-        const y = range(rng, by + 6, by + bh - h - 6);
-        city.buildings.push({
-          x, y, w, h,
-          color: pick(rng, district.buildings),
-          roof: district.roof,
-          hgt: district.tall ? rangeInt(rng, 10, 22) : rangeInt(rng, 3, 7),
-          district: district.id,
-        });
-      }
-    }
+export class City {
+  constructor() {
+    this.rng = makeRng(SEED);
+    this.buildings = [];
+    this.trees = [];
+    this.build();
   }
 
-  // Player starts on the central north-south road, mid-city.
-  city.spawn = { x: GRID_X + 6 * PITCH, y: GRID_Y + 4 * PITCH };
-
-  city.districtAt = (x, y) => {
-    if (y >= WATER_TOP) return null;
-    const col = Math.floor((x - GRID_X) / PITCH);
-    const row = Math.floor((y - GRID_Y) / PITCH);
-    if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return null;
-    return districtAtCell(col, row);
-  };
-
-  // True when a circle at (x, y) with radius r cannot be there.
-  city.isBlocked = (x, y, r) => {
-    if (x - r < 0 || x + r > city.width || y - r < 0 || y + r > city.height) return true;
-    if (y + r > WATER_TOP && y - r < CONFIG.cityHeight) {
-      const onBridge = x + r > BRIDGE.x && x - r < BRIDGE.x + BRIDGE.w
-        && y + r > BRIDGE.y && y - r < BRIDGE.y + BRIDGE.h;
-      const onBeach = x + r > BEACH.x && x - r < BEACH.x + BEACH.w
-        && y + r > BEACH.y && y - r < BEACH.y + BEACH.h;
-      if (!onBridge && !onBeach) return true;
-    }
-    for (let i = 0; i < city.buildings.length; i++) {
-      const b = city.buildings[i];
-      if (x + r > b.x && x - r < b.x + b.w && y + r > b.y && y - r < b.y + b.h) return true;
+  isPark(col, row) {
+    for (const p of PARKS) {
+      if (p.col === col && p.row === row) {
+        return true;
+      }
     }
     return false;
-  };
-
-  return city;
-}
-
-// Daylight for a game hour (0-24). Returns a darkness overlay 0..1 and a tint.
-export function daylight(hour) {
-  if (hour >= 7 && hour < 17) return { darkness: 0, tint: null };
-  if (hour >= 17 && hour < 19) {
-    const f = (hour - 17) / 2;
-    return { darkness: 0.18 * f, tint: 'rgba(255,140,60,0.10)' };
   }
-  if (hour >= 19 || hour < 5) return { darkness: 0.42, tint: null };
-  const f = (hour - 5) / 2;
-  return { darkness: 0.42 * (1 - f), tint: 'rgba(255,170,90,0.06)' };
+
+  build() {
+    for (let row = 0; row < ROWS; row += 1) {
+      for (let col = 0; col < COLS; col += 1) {
+        const d = districtAt(col, row);
+        const bx = blockX(col);
+        const by = blockY(row);
+        if (this.isPark(col, row)) {
+          const count = this.rng.int(6, 9);
+          for (let i = 0; i < count; i += 1) {
+            this.trees.push({
+              x: bx + this.rng.range(18, BLOCK - 18),
+              y: by + this.rng.range(18, BLOCK - 18),
+              r: this.rng.range(9, 15),
+            });
+          }
+          continue;
+        }
+        const layout = this.rng.pick(["one", "two", "four"]);
+        if (layout === "one") {
+          const m = this.rng.range(14, 30);
+          this.addBuilding(bx + m, by + m, BLOCK - m * 2, BLOCK - m * 2, d);
+        } else if (layout === "two") {
+          const gap = 12;
+          const w = (BLOCK - gap) / 2;
+          const m = this.rng.range(12, 20);
+          this.addBuilding(bx + m, by + m, w - m, BLOCK - m * 2, d);
+          this.addBuilding(bx + w + gap, by + m, w - m, BLOCK - m * 2, d);
+        } else {
+          const gap = 10;
+          const w = (BLOCK - gap) / 2;
+          const h = (BLOCK - gap) / 2;
+          const m = this.rng.range(10, 16);
+          this.addBuilding(bx + m, by + m, w - m, h - m, d);
+          this.addBuilding(bx + w + gap, by + m, w - m, h - m, d);
+          this.addBuilding(bx + m, by + h + gap, w - m, h - m, d);
+          this.addBuilding(bx + w + gap, by + h + gap, w - m, h - m, d);
+        }
+      }
+    }
+    for (let i = 0; i < 14; i += 1) {
+      this.trees.push({
+        x: this.rng.range(60, WORLD_W - 60),
+        y: CITY_H + BAY_H + this.rng.range(24, BEACH_H - 24),
+        r: this.rng.range(10, 16),
+      });
+    }
+  }
+
+  addBuilding(x, y, w, h, district) {
+    if (w < 24 || h < 24) {
+      return;
+    }
+    this.buildings.push({
+      x,
+      y,
+      w,
+      h,
+      color: this.rng.pick(district.buildings),
+      district: district.id,
+    });
+  }
+
+  bridgeRect() {
+    return {
+      x: roadX(BRIDGE_ROAD),
+      y: CITY_H,
+      w: ROAD,
+      h: BAY_H,
+    };
+  }
+
+  onBridge(x, y) {
+    const b = this.bridgeRect();
+    return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+  }
+
+  inWater(x, y) {
+    return y >= CITY_H && y < CITY_H + BAY_H && !this.onBridge(x, y);
+  }
+
+  isBlocked(x, y) {
+    if (x < 0 || y < 0 || x >= WORLD_W || y >= WORLD_H) {
+      return true;
+    }
+    if (this.inWater(x, y)) {
+      return true;
+    }
+    for (const b of this.buildings) {
+      if (x > b.x + 1 && x < b.x + b.w - 1 && y > b.y + 1 && y < b.y + b.h - 1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  daylight(minutes) {
+    const t = (minutes - 360) / 720;
+    if (t <= 0 || t >= 1) {
+      return 0.16;
+    }
+    const sun = Math.sin(Math.PI * t);
+    return 0.16 + 0.84 * Math.pow(sun, 0.7);
+  }
+
+  clockText(minutes) {
+    const m = ((Math.floor(minutes) % 1440) + 1440) % 1440;
+    const hh = String(Math.floor(m / 60)).padStart(2, "0");
+    const mm = String(m % 60).padStart(2, "0");
+    return hh + ":" + mm;
+  }
 }

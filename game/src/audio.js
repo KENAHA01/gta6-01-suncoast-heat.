@@ -1,50 +1,69 @@
-// audio.js - synthetic sound through WebAudio, no audio files.
-// One job: make short bleeps and thuds from oscillators. It stays silent
-// until the player first interacts, because browsers block audio before that.
+// Solmarina Heat - synthetic WebAudio.
+// Silent until the first gesture, then tiny blips and a quiet warm pad.
 
 export class AudioSys {
   constructor() {
     this.ctx = null;
-    this.enabled = false;
+    this.master = null;
+    this.padOn = false;
   }
 
-  // Call from a user gesture (key press or click). Safe to call often.
   ensure() {
     if (this.ctx) {
-      if (this.ctx.state === 'suspended') this.ctx.resume();
+      if (this.ctx.state === "suspended") {
+        this.ctx.resume();
+      }
+      return true;
+    }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) {
+      return false;
+    }
+    this.ctx = new AC();
+    this.master = this.ctx.createGain();
+    this.master.gain.value = 0.5;
+    this.master.connect(this.ctx.destination);
+    return true;
+  }
+
+  blip(freq, dur, type, vol) {
+    if (!this.ctx) {
       return;
     }
-    try {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
-      this.ctx = new AC();
-      this.enabled = true;
-    } catch (err) {
-      this.enabled = false;
-    }
-  }
-
-  // A short tone. freq in Hz, dur in seconds, type is an oscillator shape.
-  tone(freq, dur, type, volume) {
-    if (!this.enabled || !this.ctx) return;
-    const t0 = this.ctx.currentTime;
+    const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    osc.type = type || 'square';
-    osc.frequency.setValueAtTime(freq, t0);
-    gain.gain.setValueAtTime(volume || 0.05, t0);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    osc.connect(gain);
-    gain.connect(this.ctx.destination);
-    osc.start(t0);
-    osc.stop(t0 + dur);
+    const g = this.ctx.createGain();
+    osc.type = type || "square";
+    osc.frequency.value = freq || 660;
+    g.gain.setValueAtTime(vol || 0.04, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + (dur || 0.08));
+    osc.connect(g);
+    g.connect(this.master);
+    osc.start(t);
+    osc.stop(t + (dur || 0.08) + 0.02);
   }
 
-  click() {
-    this.tone(660, 0.06, 'square', 0.04);
+  confirm() {
+    this.blip(660, 0.07, "square", 0.04);
+    setTimeout(() => this.blip(880, 0.09, "square", 0.04), 70);
   }
 
-  step() {
-    this.tone(140, 0.04, 'triangle', 0.02);
+  startPad() {
+    if (!this.ctx || this.padOn) {
+      return;
+    }
+    this.padOn = true;
+    const freqs = [130.81, 196.0, 246.94];
+    for (const f of freqs) {
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.value = f;
+      osc.detune.value = (Math.random() - 0.5) * 6;
+      g.gain.value = 0.012;
+      osc.connect(g);
+      g.connect(this.master);
+      osc.start();
+    }
   }
 }

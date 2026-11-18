@@ -1,57 +1,47 @@
-// main.ts - Solmarina Heat entrypoint for make.fun (gta6-01).
-// One job: copy game/ and screenshots/ into the grader output directory and
-// write dossier.json from them with the kit's buildDossier. Node 22,
-// standard library only, no network, deterministic: two runs write identical
-// bytes. Run as: MAKEFUN_OUTPUT_DIR=/output node main.ts
+// Solmarina Heat - entrypoint.
+// Copies game/ and screenshots/ to the output directory and writes
+// dossier.json with buildDossier from the kit's vendored library.
+// Runs on Node 22 with the standard library only; the output is
+// deterministic, so two runs write identical bytes.
 
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { buildDossier } from './vendor/makefun-game.ts';
+import { buildDossier } from "./vendor/makefun-game.ts";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)));
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)));
+const outDir = process.env.MAKEFUN_OUTPUT_DIR
+  ? resolve(process.env.MAKEFUN_OUTPUT_DIR)
+  : resolve(repoRoot, "out");
 
-function outputDir(): string {
-  const env = process.env.MAKEFUN_OUTPUT_DIR;
-  const out = resolve(env && env.length > 0 ? env : join(REPO_ROOT, 'output'));
-  if (out === REPO_ROOT) {
-    throw new Error('main.ts: MAKEFUN_OUTPUT_DIR must not be the repo root');
+if (!existsSync(join(repoRoot, "game", "index.html"))) {
+  throw new Error("game/index.html is missing");
+}
+const shots = existsSync(join(repoRoot, "screenshots"))
+  ? readdirSync(join(repoRoot, "screenshots")).filter((f) => !f.startsWith("."))
+  : [];
+if (shots.length < 3) {
+  throw new Error("need at least 3 screenshots, found " + shots.length);
+}
+
+mkdirSync(outDir, { recursive: true });
+
+for (const name of ["game", "screenshots"]) {
+  const src = join(repoRoot, name);
+  const dst = join(outDir, name);
+  rmSync(dst, { recursive: true, force: true });
+  if (existsSync(src)) {
+    cpSync(src, dst, { recursive: true });
   }
-  return out;
 }
 
-function main(): void {
-  const out = outputDir();
-  if (existsSync(out)) rmSync(out, { recursive: true, force: true });
-  mkdirSync(out, { recursive: true });
-  cpSync(join(REPO_ROOT, 'game'), join(out, 'game'), { recursive: true });
-  cpSync(join(REPO_ROOT, 'screenshots'), join(out, 'screenshots'), { recursive: true });
-  const dossier = buildDossier(out, {
-    text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: 262144 },
-    game_max_files: 993,
-    game_max_bytes: 50331648,
-    game_path_max_bytes: 1000,
-  });
-  writeFileSync(join(out, 'dossier.json'), dossier);
-  const gameFiles = countFiles(join(out, 'game'));
-  const shotFiles = countFiles(join(out, 'screenshots'));
-  console.log('wrote ' + join(out, 'dossier.json') + ' (' + dossier.length + ' bytes, '
-    + gameFiles + ' game files, ' + shotFiles + ' screenshots)');
-}
-
-function countFiles(dir: string): number {
-  let n = 0;
-  const stack = [dir];
-  while (stack.length > 0) {
-    const cur = stack.pop() as string;
-    for (const name of readdirSync(cur, { withFileTypes: true })) {
-      const p = join(cur, name.name);
-      if (name.isDirectory()) stack.push(p);
-      else n++;
-    }
-  }
-  return n;
-}
-
-main();
+const dossier = buildDossier(repoRoot, { text_max_bytes: 163840 });
+writeFileSync(join(outDir, "dossier.json"), dossier);
+console.log("wrote " + outDir + " (" + shots.length + " screenshots, dossier " + dossier.byteLength + " bytes)");

@@ -1,187 +1,166 @@
-// main.js - Solmarina Heat: game state, the fixed-step loop and the player.
-// One job: own the loop (update at 60 Hz, render every frame), move the
-// player on foot with collision, and advance the clock. Vehicles, traffic,
-// police, combat and missions plug into this state on later days.
+// Solmarina Heat - game loop and state.
+// Fixed-step 60 Hz simulation, per-axis collision, four game states.
 
-import { CONFIG } from './config.js';
-import { generateCity } from './city.js';
-import { Input } from './input.js';
-import { AudioSys } from './audio.js';
-import { Camera, drawWorld, drawPlayer, drawDaylight } from './render.js';
-import { drawHud } from './hud.js';
-import { applyShot, SHOT_NAMES } from './shots.js';
+import {
+  VIEW_W,
+  VIEW_H,
+  WALK_SPEED,
+  STEP,
+  PLAYER_START,
+  GAME_TITLE,
+} from "./config.js";
+import { City } from "./city.js";
+import { Camera, drawWorld } from "./render.js";
+import { drawHud, drawTitle, drawEnd } from "./hud.js";
+import { Input } from "./input.js";
+import { AudioSys } from "./audio.js";
+import { stageShot } from "./shots.js";
 
-const STEP = 1 / 60;
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
 
-export class Game {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
-    this.city = generateCity(CONFIG.seed);
-    this.input = new Input(canvas);
-    this.audio = new AudioSys();
-    this.camera = new Camera();
-    this.state = 'title'; // title | playing | wasted | busted
-    this.player = {
-      x: this.city.spawn.x,
-      y: this.city.spawn.y,
-      dir: -Math.PI / 2,
-      health: 100,
-      moving: false,
-    };
-    this.money = 250;
-    this.wanted = 0;
-    this.hour = CONFIG.startHour;
-    this.objective = 'Explore Solmarina. Find work, stay out of trouble.';
-    this.dialog = null; // {speaker, text} shown in a box, or null
-    this.title = 'SOLMARINA HEAT';
-    this.subtitle = 'A sun-soaked open-world story';
-    this.accumulator = 0;
-    this.lastTime = 0;
-    this.running = false;
-    this.resize();
-    window.addEventListener('resize', () => this.resize());
+const city = new City();
+const cam = new Camera();
+const input = new Input(canvas);
+const audio = new AudioSys();
+
+const state = {
+  mode: "title",
+  clock: 600,
+  money: 1250,
+  wanted: 0,
+  objective: "Explore Solmarina",
+  dialog: null,
+  marker: null,
+  muted: false,
+  shot: null,
+  player: {
+    x: PLAYER_START.x,
+    y: PLAYER_START.y,
+    face: Math.PI / 2,
+    health: 100,
+    moving: false,
+  },
+  props: {
+    cars: [],
+  },
+};
+
+window.__game = state;
+window.__city = city;
+document.title = GAME_TITLE;
+
+const params = new URLSearchParams(window.location.search);
+const shotName = params.get("shot");
+if (shotName) {
+  state.shot = shotName;
+  stageShot(state, city, shotName);
+}
+
+function playerBoxBlocked(px, py) {
+  const half = 11;
+  return (
+    city.isBlocked(px - half, py - half) ||
+    city.isBlocked(px + half, py - half) ||
+    city.isBlocked(px - half, py + half) ||
+    city.isBlocked(px + half, py + half)
+  );
+}
+
+function movePlayer(dt) {
+  const p = state.player;
+  const axis = input.moveAxis();
+  p.moving = axis.x !== 0 || axis.y !== 0;
+  if (!p.moving) {
+    return;
   }
-
-  resize() {
-    const w = this.canvas.clientWidth || CONFIG.canvasWidth;
-    const h = this.canvas.clientHeight || CONFIG.canvasHeight;
-    this.canvas.width = w;
-    this.canvas.height = h;
-    this.camera.resize(w, h);
+  p.face = Math.atan2(axis.y, axis.x);
+  const dx = axis.x * WALK_SPEED * dt;
+  const dy = axis.y * WALK_SPEED * dt;
+  if (!playerBoxBlocked(p.x + dx, p.y)) {
+    p.x += dx;
   }
-
-  start() {
-    if (this.running) return;
-    this.running = true;
-    this.lastTime = performance.now();
-    const frame = (now) => {
-      if (!this.running) return;
-      const dt = Math.min(0.1, (now - this.lastTime) / 1000);
-      this.lastTime = now;
-      this.accumulator += dt;
-      while (this.accumulator >= STEP) {
-        this.update(STEP);
-        this.accumulator -= STEP;
-      }
-      this.render();
-      requestAnimationFrame(frame);
-    };
-    requestAnimationFrame(frame);
-  }
-
-  update(dt) {
-    // The clock always runs; the world only moves while playing.
-    this.hour += (dt / CONFIG.dayLengthSeconds) * 24;
-    if (this.hour >= 24) this.hour -= 24;
-    if (this.state === 'title') {
-      if (this.input.anyKey) {
-        this.input.anyKey = false;
-        this.audio.ensure();
-        this.audio.click();
-        this.state = 'playing';
-      }
-      return;
-    }
-    if (this.state !== 'playing') return;
-    this.audio.ensure();
-    const mv = this.input.moveVector();
-    this.player.moving = mv.x !== 0 || mv.y !== 0;
-    if (this.player.moving) {
-      this.player.dir = Math.atan2(mv.y, mv.x);
-      const nx = this.player.x + mv.x * CONFIG.walkSpeed * dt;
-      const ny = this.player.y + mv.y * CONFIG.walkSpeed * dt;
-      if (!this.city.isBlocked(nx, this.player.y, CONFIG.playerRadius)) {
-        this.player.x = nx;
-      }
-      if (!this.city.isBlocked(this.player.x, ny, CONFIG.playerRadius)) {
-        this.player.y = ny;
-      }
-    }
-    this.camera.follow(this.player.x, this.player.y, this.city.width, this.city.height);
-  }
-
-  render() {
-    const ctx = this.ctx;
-    const w = this.canvas.width;
-    const h = this.canvas.height;
-    ctx.fillStyle = '#10131a';
-    ctx.fillRect(0, 0, w, h);
-    drawWorld(ctx, this, this.camera);
-    drawPlayer(ctx, this.player, this.camera);
-    drawDaylight(ctx, this.hour, w, h);
-    if (this.state === 'title') {
-      this.drawTitle(ctx, w, h);
-      return;
-    }
-    drawHud(ctx, this, w, h);
-    if (this.dialog) this.drawDialog(ctx, w, h);
-    if (this.state === 'wasted') this.drawEndCard(ctx, w, h, 'WASTED', '#e03131');
-    if (this.state === 'busted') this.drawEndCard(ctx, w, h, 'BUSTED', '#1971c2');
-  }
-
-  drawTitle(ctx, w, h) {
-    ctx.fillStyle = 'rgba(6,8,18,0.55)';
-    ctx.fillRect(0, 0, w, h);
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#ffd43b';
-    ctx.font = 'bold 64px Arial, sans-serif';
-    ctx.fillText(this.title, w / 2, h / 2 - 30);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '22px Arial, sans-serif';
-    ctx.fillText(this.subtitle, w / 2, h / 2 + 8);
-    ctx.font = '18px Arial, sans-serif';
-    ctx.fillStyle = '#ced4da';
-    ctx.fillText('Press any key to start', w / 2, h / 2 + 52);
-    ctx.font = '14px Arial, sans-serif';
-    ctx.fillText('WASD or arrows to walk  •  Explore the city', w / 2, h - 28);
-    ctx.textAlign = 'left';
-  }
-
-  drawDialog(ctx, w, h) {
-    const boxW = Math.min(640, w - 80);
-    const boxH = 92;
-    const x = (w - boxW) / 2;
-    const y = h - boxH - 70;
-    ctx.fillStyle = 'rgba(0,0,0,0.72)';
-    ctx.fillRect(x, y, boxW, boxH);
-    ctx.strokeStyle = '#ffd43b';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, boxW, boxH);
-    ctx.fillStyle = '#ffd43b';
-    ctx.font = 'bold 15px Arial, sans-serif';
-    ctx.fillText(this.dialog.speaker, x + 16, y + 26);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '15px Arial, sans-serif';
-    ctx.fillText(this.dialog.text, x + 16, y + 54);
-  }
-
-  drawEndCard(ctx, w, h, word, color) {
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(0, 0, w, h);
-    ctx.textAlign = 'center';
-    ctx.fillStyle = color;
-    ctx.font = 'bold 72px Arial, sans-serif';
-    ctx.fillText(word, w / 2, h / 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '18px Arial, sans-serif';
-    ctx.fillText('Press any key to try again', w / 2, h / 2 + 48);
-    ctx.textAlign = 'left';
+  if (!playerBoxBlocked(p.x, p.y + dy)) {
+    p.y += dy;
   }
 }
 
-// Boot the game from index.html. ?shot=name stages a deterministic scene.
-export function boot() {
-  const canvas = document.getElementById('game');
-  const game = new Game(canvas);
-  const params = new URLSearchParams(window.location.search);
-  const shot = params.get('shot');
-  if (shot && SHOT_NAMES.includes(shot)) {
-    applyShot(game, shot);
+function update(dt) {
+  if (state.mode === "playing") {
+    movePlayer(dt);
+    if (!state.shot) {
+      state.clock += dt;
+    }
+    if (state.player.health <= 0) {
+      state.mode = "wasted";
+      state.dialog = null;
+    }
   }
-  game.camera.follow(game.player.x, game.player.y, game.city.width, game.city.height);
-  game.start();
-  // Exposed for automated playtests; the game never reads this itself.
-  window.__solmarina = game;
-  return game;
+  cam.follow(state.player.x, state.player.y);
 }
+
+function render(timeMs) {
+  ctx.clearRect(0, 0, VIEW_W, VIEW_H);
+  if (state.mode === "title") {
+    const panX = state.player.x + Math.sin(timeMs / 9000) * 220;
+    const panY = state.player.y + Math.cos(timeMs / 11000) * 120;
+    cam.follow(panX, panY);
+    drawWorld(ctx, city, cam, state, timeMs);
+    drawTitle(ctx, timeMs);
+    return;
+  }
+  drawWorld(ctx, city, cam, state, timeMs);
+  drawHud(ctx, state, city);
+  if (state.mode === "wasted" || state.mode === "busted") {
+    drawEnd(ctx, state.mode);
+  }
+}
+
+let last = performance.now();
+let acc = 0;
+let timeMs = 0;
+
+function frame(now) {
+  const elapsed = Math.min(0.25, (now - last) / 1000);
+  last = now;
+  timeMs += elapsed * 1000;
+  acc += elapsed;
+  let steps = 0;
+  while (acc >= STEP && steps < 5) {
+    update(STEP);
+    acc -= STEP;
+    steps += 1;
+  }
+  if (steps === 5) {
+    acc = 0;
+  }
+
+  if (state.mode === "title") {
+    if (input.wasPressed("Enter", " ") || input.clicked) {
+      state.mode = "playing";
+      audio.ensure();
+      audio.confirm();
+      audio.startPad();
+    }
+  } else if (state.mode === "wasted" || state.mode === "busted") {
+    if (input.wasPressed("r", "R")) {
+      state.mode = "title";
+      state.player.x = PLAYER_START.x;
+      state.player.y = PLAYER_START.y;
+      state.player.health = 100;
+      state.wanted = 0;
+      state.dialog = null;
+    }
+  } else if (input.wasPressed("m", "M")) {
+    state.muted = !state.muted;
+    if (audio.master) {
+      audio.master.gain.value = state.muted ? 0 : 0.5;
+    }
+  }
+
+  render(timeMs);
+  input.endFrame();
+  requestAnimationFrame(frame);
+}
+
+requestAnimationFrame(frame);

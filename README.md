@@ -1,28 +1,48 @@
 # Solmarina Heat
 
-An original open-world crime game built for make.fun's "Make GTA 6" bounty
-(gta6-01). Canvas 2D, top-down, procedural city, no external assets, no
-network. Open `game/index.html` in desktop Chrome and play.
+An original open-world crime game in the spirit of GTA 6, built for the
+make.fun gta6-01 bounty. It runs in a desktop browser from its own static
+files, played with keyboard and mouse. No network, no external assets, no
+build step: every pixel is drawn by code.
 
 ## The game
 
-Solmarina is a sun-soaked coastal city with four districts (Marina Bay,
-Palmetto Strip, Las Brisas, Old Cannery), a park, a bay with a bridge and a
-beach, and a full day-night cycle. You play Dario Cruz, a driver looking for
-work. Walk the streets with WASD or arrow keys, watch your health, money,
-wanted stars and the clock, and follow the objective.
+Dario Cruz comes home to Solmarina, a sun-soaked coastal city of four
+districts: Marina Bay, the Palmetto Strip, Las Brisas and the Old Cannery.
+Walk the streets, cross the bridge to the beach, take jobs from Marisol,
+and stay ahead of the Solmarina PD as the wanted level climbs.
 
-## Controls
+Day 1 covers the skeleton: a procedural city from a fixed seed, camera,
+walking with collision, a HUD with health, money, wanted stars, clock and a
+live minimap, a title screen, wasted and busted states, and deterministic
+screenshot scenes.
 
-- WASD / arrow keys: walk
-- Any key on the title screen: start
+## Play
 
-## Build
+```text
+node serve: any static server over game/
+# example: python3 -m http.server 8080 --directory game
+```
 
-`node main.ts` copies `game/` and `screenshots/` into `MAKEFUN_OUTPUT_DIR`
-and writes `dossier.json` there (Node 22, standard library only).
+Open http://localhost:8080, press Enter, walk with WASD or the arrow keys.
 
-## Screenshots
+Screenshots are staged with `?shot=chase`, `?shot=title`, `?shot=mission`
+or `?shot=wasted`.
 
-Staged renders are captured from the game itself with
-`game/src/shots.js` (`?shot=chase|title|mission|wasted`).
+## Layout
+
+- `game/index.html` - the page and canvas
+- `game/src/config.js` - constants, districts, fixed seed
+- `game/src/random.js` - seeded RNG
+- `game/src/input.js` - keyboard and mouse
+- `game/src/audio.js` - synthetic WebAudio
+- `game/src/city.js` - procedural city, collision, day and night
+- `game/src/render.js` - camera and world drawing
+- `game/src/hud.js` - HUD, minimap, dialog, title and end screens
+- `game/src/main.js` - fixed-step loop and game states
+- `game/src/shots.js` - deterministic staged scenes
+- `main.ts` - hands game/ and screenshots/ to make.fun with a dossier
+
+## License
+
+MIT. See LICENSE.

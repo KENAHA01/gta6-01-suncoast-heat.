@@ -1,188 +1,243 @@
-// render.js - camera and world drawing for Solmarina Heat.
-// One job: turn the city, the player and the time of day into pixels on the
-// canvas. No game logic lives here, only drawing.
+// Solmarina Heat - camera and world drawing.
+// Top-down: ground, roads, buildings, water, bridge, props, player, night.
 
-import { CONFIG } from './config.js';
-import { daylight } from './city.js';
+import {
+  VIEW_W,
+  VIEW_H,
+  WORLD_W,
+  WORLD_H,
+  BLOCK,
+  ROAD,
+  CELL,
+  COLS,
+  ROWS,
+  CITY_W,
+  CITY_H,
+  BAY_H,
+  BEACH_H,
+  DISTRICTS,
+  WATER,
+  WATER_DEEP,
+  SAND,
+  ROAD_COLOR,
+  ROAD_LINE,
+  blockX,
+  blockY,
+  roadX,
+  roadY,
+} from "./config.js";
 
-// A viewport into the world that follows a point and stays inside the city.
 export class Camera {
   constructor() {
     this.x = 0;
     this.y = 0;
-    this.w = CONFIG.canvasWidth;
-    this.h = CONFIG.canvasHeight;
   }
 
-  resize(w, h) {
-    this.w = w;
-    this.h = h;
-  }
-
-  follow(px, py, cityW, cityH) {
-    this.x = px - this.w / 2;
-    this.y = py - this.h / 2;
-    if (this.x < 0) this.x = 0;
-    if (this.y < 0) this.y = 0;
-    if (this.x > cityW - this.w) this.x = Math.max(0, cityW - this.w);
-    if (this.y > cityH - this.h) this.y = Math.max(0, cityH - this.h);
+  follow(px, py) {
+    const maxX = Math.max(0, WORLD_W - VIEW_W);
+    const maxY = Math.max(0, WORLD_H - VIEW_H);
+    this.x = Math.min(maxX, Math.max(0, px - VIEW_W / 2));
+    this.y = Math.min(maxY, Math.max(0, py - VIEW_H / 2));
   }
 }
 
-function drawRoads(ctx, city, cam) {
-  const g = city.grid;
-  const rw = CONFIG.roadWidth;
-  ctx.fillStyle = '#33363d';
-  // Vertical roads.
-  for (let k = 0; k <= g.cols; k++) {
-    const x = g.x + k * g.pitch - rw / 2;
-    ctx.fillRect(x - cam.x, 0 - cam.y, rw, city.height);
+function clamp(v, lo, hi) {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+export function drawWorld(ctx, city, cam, state, timeMs) {
+  ctx.save();
+  ctx.translate(-Math.round(cam.x), -Math.round(cam.y));
+
+  ctx.fillStyle = "#5d6b52";
+  ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+  for (const d of DISTRICTS) {
+    const x0 = blockX(d.col0) - ROAD;
+    const y0 = blockY(d.row0) - ROAD;
+    const x1 = blockX(d.col1) + BLOCK + ROAD;
+    const y1 = blockY(d.row1) + BLOCK + ROAD;
+    ctx.fillStyle = d.ground;
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
   }
-  // Horizontal roads.
-  for (let k = 0; k <= g.rows; k++) {
-    const y = g.y + k * g.pitch - rw / 2;
-    ctx.fillRect(0 - cam.x, y - cam.y, city.width, rw);
+
+  ctx.fillStyle = ROAD_COLOR;
+  for (let k = 0; k <= COLS; k += 1) {
+    ctx.fillRect(roadX(k), 0, ROAD, CITY_H);
   }
-  // Centre dashes on the roads.
-  ctx.fillStyle = 'rgba(240,230,180,0.75)';
-  for (let k = 0; k <= g.cols; k++) {
-    const x = g.x + k * g.pitch;
-    for (let y = 0; y < city.height; y += 44) {
-      ctx.fillRect(x - 2 - cam.x, y - cam.y, 4, 22);
+  for (let k = 0; k <= ROWS; k += 1) {
+    ctx.fillRect(0, roadY(k), CITY_W, ROAD);
+  }
+
+  ctx.strokeStyle = ROAD_LINE;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([18, 22]);
+  for (let k = 0; k <= COLS; k += 1) {
+    const x = roadX(k) + ROAD / 2;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, CITY_H);
+    ctx.stroke();
+  }
+  for (let k = 0; k <= ROWS; k += 1) {
+    const y = roadY(k) + ROAD / 2;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(CITY_W, y);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  for (const d of DISTRICTS) {
+    const cx = (blockX(d.col0) + blockX(d.col1) + BLOCK) / 2;
+    const cy = (blockY(d.row0) + blockY(d.row1) + BLOCK) / 2;
+    ctx.fillStyle = "rgba(20, 20, 20, 0.28)";
+    ctx.font = "bold 26px Arial, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(d.name.toUpperCase(), cx, cy);
+  }
+
+  for (let row = 0; row < ROWS; row += 1) {
+    for (let col = 0; col < COLS; col += 1) {
+      if (city.isPark(col, row)) {
+        ctx.fillStyle = "#6da34f";
+        ctx.fillRect(blockX(col), blockY(row), BLOCK, BLOCK);
+      }
     }
   }
-  for (let k = 0; k <= g.rows; k++) {
-    const y = g.y + k * g.pitch;
-    for (let x = 0; x < city.width; x += 44) {
-      ctx.fillRect(x - cam.x, y - 2 - cam.y, 22, 4);
-    }
-  }
-}
 
-function drawBuildings(ctx, city, cam) {
-  for (let i = 0; i < city.buildings.length; i++) {
-    const b = city.buildings[i];
-    // Fake height: a soft shadow offset down-right, then the roof.
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    ctx.fillRect(b.x + b.hgt * 0.4 - cam.x, b.y + b.hgt * 0.6 - cam.y, b.w, b.h);
-    ctx.fillStyle = b.color;
-    ctx.fillRect(b.x - cam.x, b.y - cam.y, b.w, b.h);
-    ctx.fillStyle = b.roof;
-    ctx.fillRect(b.x + 4 - cam.x, b.y + 4 - cam.y, b.w - 8, b.h - 8);
-    ctx.fillStyle = 'rgba(255,255,255,0.16)';
-    ctx.fillRect(b.x + 4 - cam.x, b.y + 4 - cam.y, b.w - 8, 5);
+  ctx.fillStyle = WATER_DEEP;
+  ctx.fillRect(0, CITY_H, CITY_W, BAY_H);
+  ctx.fillStyle = WATER;
+  ctx.fillRect(0, CITY_H + 8, CITY_W, BAY_H - 16);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 12; i += 1) {
+    const x = 80 + i * 200;
+    const y = CITY_H + 40 + (i % 3) * 70;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + 46, y);
+    ctx.stroke();
   }
-}
 
-function drawParks(ctx, city, cam) {
-  for (let i = 0; i < city.parks.length; i++) {
-    const p = city.parks[i];
-    ctx.fillStyle = '#5d8a4a';
-    ctx.fillRect(p.x - cam.x, p.y - cam.y, p.w, p.h);
-    ctx.fillStyle = '#6f9e57';
-    ctx.fillRect(p.x + 6 - cam.x, p.y + 6 - cam.y, p.w - 12, p.h - 12);
-    for (let j = 0; j < p.trees.length; j++) {
-      const t = p.trees[j];
-      ctx.fillStyle = 'rgba(0,0,0,0.2)';
-      ctx.beginPath();
-      ctx.arc(t.x + 3 - cam.x, t.y + 4 - cam.y, t.r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#2f6b2f';
-      ctx.beginPath();
-      ctx.arc(t.x - cam.x, t.y - cam.y, t.r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#3f8a3f';
-      ctx.beginPath();
-      ctx.arc(t.x - 2 - cam.x, t.y - 2 - cam.y, t.r * 0.6, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-}
-
-function drawWater(ctx, city, cam) {
-  const w = city.water;
-  ctx.fillStyle = '#2e7fa8';
-  ctx.fillRect(w.x - cam.x, w.y - cam.y, w.w, w.h);
-  ctx.fillStyle = '#3a93bf';
-  for (let y = w.y + 12; y < w.y + w.h; y += 26) {
-    for (let x = 8; x < w.w; x += 74) {
-      ctx.fillRect(x - cam.x, y - cam.y, 34, 3);
-    }
-  }
-  // Beach sand and a few palms.
-  const b = city.beach;
-  ctx.fillStyle = '#e8d29a';
-  ctx.fillRect(b.x - cam.x, b.y - cam.y, b.w, b.h);
-  ctx.fillStyle = '#2f6b2f';
-  ctx.beginPath(); ctx.arc(b.x + 22 - cam.x, b.y + 22 - cam.y, 9, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(b.x + b.w - 22 - cam.x, b.y + 26 - cam.y, 9, 0, Math.PI * 2); ctx.fill();
-  // Bridge planks over the bay.
-  const br = city.bridge;
-  ctx.fillStyle = '#8a6b4a';
-  ctx.fillRect(br.x - cam.x, br.y - cam.y, br.w, br.h);
-  ctx.fillStyle = '#a8845c';
-  for (let y = br.y + 4; y < br.y + br.h; y += 14) {
-    ctx.fillRect(br.x + 3 - cam.x, y - cam.y, br.w - 6, 8);
-  }
-}
-
-// Draw the whole world in camera space.
-export function drawWorld(ctx, game, cam) {
-  const city = game.city;
-  const g = city.grid;
-  // District ground colours, quadrant by quadrant.
-  ctx.fillStyle = '#7e8891';
-  ctx.fillRect(0 - cam.x, 0 - cam.y, city.width, city.height);
-  const midX = g.x + 6 * g.pitch;
-  const midY = g.y + 4 * g.pitch;
-  ctx.fillStyle = city.districts[0].ground;
-  ctx.fillRect(0 - cam.x, 0 - cam.y, midX, midY);
-  ctx.fillStyle = city.districts[1].ground;
-  ctx.fillRect(midX - cam.x, 0 - cam.y, city.width - midX, midY);
-  ctx.fillStyle = city.districts[2].ground;
-  ctx.fillRect(0 - cam.x, midY - cam.y, midX, city.height - midY);
-  ctx.fillStyle = city.districts[3].ground;
-  ctx.fillRect(midX - cam.x, midY - cam.y, city.width - midX, city.height - midY);
-  drawRoads(ctx, city, cam);
-  drawParks(ctx, city, cam);
-  drawWater(ctx, city, cam);
-  drawBuildings(ctx, city, cam);
-}
-
-// Draw the player: a small figure with a facing tick.
-export function drawPlayer(ctx, player, cam) {
-  const x = player.x - cam.x;
-  const y = player.y - cam.y;
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  const b = city.bridgeRect();
+  ctx.fillStyle = "#8a7a5c";
+  ctx.fillRect(b.x - 6, b.y, b.w + 12, b.h);
+  ctx.fillStyle = ROAD_COLOR;
+  ctx.fillRect(b.x, b.y, b.w, b.h);
+  ctx.strokeStyle = ROAD_LINE;
+  ctx.setLineDash([14, 16]);
   ctx.beginPath();
-  ctx.ellipse(x + 3, y + 5, 13, 9, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#e8b13c';
-  ctx.beginPath();
-  ctx.arc(x, y, CONFIG.playerRadius, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#20242a';
-  ctx.beginPath();
-  ctx.arc(x, y - 3, 7, 0, Math.PI * 2);
-  ctx.fill();
-  // Facing tick.
-  ctx.strokeStyle = '#20242a';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x + Math.cos(player.dir) * 20, y + Math.sin(player.dir) * 20);
+  ctx.moveTo(b.x + b.w / 2, b.y);
+  ctx.lineTo(b.x + b.w / 2, b.y + b.h);
   ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = SAND;
+  ctx.fillRect(0, CITY_H + BAY_H, CITY_W, BEACH_H);
+
+  for (const t of city.trees) {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
+    ctx.beginPath();
+    ctx.ellipse(t.x + 3, t.y + 4, t.r, t.r * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#2f7a3d";
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#4c9a4f";
+    ctx.beginPath();
+    ctx.arc(t.x - 3, t.y - 3, t.r * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  for (const bd of city.buildings) {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
+    ctx.fillRect(bd.x + 5, bd.y + 6, bd.w, bd.h);
+    ctx.fillStyle = bd.color;
+    ctx.fillRect(bd.x, bd.y, bd.w, bd.h);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.14)";
+    ctx.fillRect(bd.x + 6, bd.y + 6, bd.w - 12, bd.h - 12);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.20)";
+    ctx.fillRect(bd.x + 6, bd.y + 6, bd.w - 12, 5);
+  }
+
+  if (state.marker) {
+    const pulse = 0.6 + 0.4 * Math.sin(timeMs / 280);
+    ctx.fillStyle = "rgba(255, 214, 64, " + pulse.toFixed(2) + ")";
+    const mx = state.marker.x;
+    const my = state.marker.y;
+    ctx.beginPath();
+    ctx.moveTo(mx, my - 16);
+    ctx.lineTo(mx + 12, my);
+    ctx.lineTo(mx, my + 16);
+    ctx.lineTo(mx - 12, my);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255, 214, 64, 0.8)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(mx, my, 22 + 6 * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  for (const car of state.props.cars) {
+    drawCar(ctx, car);
+  }
+
+  drawPlayer(ctx, state.player);
+
+  const light = city.daylight(state.clock);
+  if (light < 0.98) {
+    ctx.fillStyle = "rgba(8, 12, 42, " + ((1 - light) * 0.5).toFixed(3) + ")";
+    ctx.fillRect(cam.x, cam.y, VIEW_W, VIEW_H);
+  }
+
+  ctx.restore();
 }
 
-// Day-night overlay across the whole screen.
-export function drawDaylight(ctx, hour, w, h) {
-  const light = daylight(hour);
-  if (light.tint) {
-    ctx.fillStyle = light.tint;
-    ctx.fillRect(0, 0, w, h);
+function drawCar(ctx, car) {
+  ctx.save();
+  ctx.translate(car.x, car.y);
+  ctx.rotate(car.angle || 0);
+  ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+  ctx.fillRect(-26, -12, 52, 26);
+  ctx.fillStyle = car.police ? "#1d3557" : car.color;
+  ctx.fillRect(-24, -13, 48, 26);
+  ctx.fillStyle = "#bfe3ee";
+  ctx.fillRect(-8, -10, 14, 20);
+  ctx.fillStyle = car.police ? "#ffffff" : "rgba(255,255,255,0.25)";
+  ctx.fillRect(14, -10, 6, 20);
+  if (car.police) {
+    ctx.fillStyle = "#d62828";
+    ctx.fillRect(-2, -13, 8, 5);
+    ctx.fillStyle = "#2a6fdb";
+    ctx.fillRect(-2, 8, 8, 5);
   }
-  if (light.darkness > 0) {
-    ctx.fillStyle = 'rgba(8,10,38,' + light.darkness.toFixed(3) + ')';
-    ctx.fillRect(0, 0, w, h);
-  }
+  ctx.fillStyle = "#141414";
+  ctx.fillRect(-18, -16, 10, 4);
+  ctx.fillRect(-18, 12, 10, 4);
+  ctx.fillRect(8, -16, 10, 4);
+  ctx.fillRect(8, 12, 10, 4);
+  ctx.restore();
+}
+
+function drawPlayer(ctx, p) {
+  ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+  ctx.beginPath();
+  ctx.ellipse(p.x + 2, p.y + 5, 13, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#e4572e";
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f2c79b";
+  ctx.beginPath();
+  ctx.arc(p.x + Math.cos(p.face) * 4, p.y + Math.sin(p.face) * 4, 6.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#20242a";
+  ctx.beginPath();
+  ctx.arc(p.x + Math.cos(p.face) * 4, p.y + Math.sin(p.face) * 4 - 2, 6.5, Math.PI, Math.PI * 2);
+  ctx.fill();
 }
