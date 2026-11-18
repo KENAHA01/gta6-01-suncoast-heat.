@@ -30,21 +30,29 @@
     grad.addColorStop(1, '#f0c890');
     cx.fillStyle = grad;
     cx.fillRect(0, 0, 4, 256);
+    var dayTex = new THREE.CanvasTexture(cv);
+    // Sunset gradient: dusky purple zenith, pink mid-sky, orange horizon.
+    // A colour multiply cannot turn the blue day gradient orange (it only
+    // darkens it), so sunset swaps to this texture instead.
+    var sv = document.createElement('canvas');
+    sv.width = 4; sv.height = 256;
+    var sx2 = sv.getContext('2d');
+    var sgrad = sx2.createLinearGradient(0, 0, 0, 256);
+    sgrad.addColorStop(0, '#5a2a5e');
+    sgrad.addColorStop(0.45, '#c85a7a');
+    sgrad.addColorStop(0.75, '#ff8a50');
+    sgrad.addColorStop(1, '#ffb060');
+    sx2.fillStyle = sgrad;
+    sx2.fillRect(0, 0, 4, 256);
+    var sunsetTex = new THREE.CanvasTexture(sv);
     var domeMat = new THREE.MeshBasicMaterial({
-      map: new THREE.CanvasTexture(cv), side: THREE.BackSide, fog: false
+      map: dayTex, side: THREE.BackSide, fog: false
     });
     var dome = new THREE.Mesh(new THREE.SphereGeometry(800, 24, 16), domeMat);
     scene.add(dome);
     scene.userData.skyDomeMat = domeMat;
-    // Sunset sun: a big glowing disc low on the horizon, like the top
-    // entries' giant sun. It follows the sun's azimuth and grows + turns
-    // orange-pink at sunset, so the whole game has one strong identity.
-    var sunDiscMat = new THREE.MeshBasicMaterial({ color: 0xfff2c0, fog: false });
-    var sunDisc = new THREE.Mesh(new THREE.CircleGeometry(48, 32), sunDiscMat);
-    sunDisc.visible = false;
-    scene.add(sunDisc);
-    scene.userData.sunDisc = sunDisc;
-    scene.userData.sunDiscMat = sunDiscMat;
+    scene.userData.skyDayTex = dayTex;
+    scene.userData.skySunsetTex = sunsetTex;
     // Clouds: flat white puffs drifting slowly over the city. They sell
     // the scale of the sky and make the horizon read as 3D depth.
     var cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, fog: false });
@@ -68,6 +76,19 @@
     });
     scene.userData.clouds = clouds;
     scene.userData.cloudMat = cloudMat;
+    // Sunset sun: a big flat disc in the western sky. It grows and turns
+    // orange-pink as the sun sets, so sunset shots have a real sun to
+    // look at instead of an empty gradient. Hidden at night. It sits
+    // north-west, ahead-left of the strip the chase drives up, so it is
+    // inside the chase camera's frame (the old due-west spot was off-frame).
+    var sunDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(34, 32),
+      new THREE.MeshBasicMaterial({ color: 0xffd27a, fog: false, transparent: true, opacity: 0.95 })
+    );
+    sunDisc.position.set(-160, 70, -420);
+    sunDisc.lookAt(0, 60, 0);
+    scene.add(sunDisc);
+    scene.userData.sunDisc = sunDisc;
     return scene;
   }
 
@@ -95,11 +116,11 @@
     scene.add(amb);
     var hemi = new THREE.HemisphereLight(0xbfd8ff, 0x5a4a3a, 0.35);
     scene.add(hemi);
-    // Fill light from the south (+z), no shadows: it lifts the faces the
-    // camera usually sees (the rear of northbound cars, south facades),
-    // which the low western sun leaves in shadow at sunset.
-    var fill = new THREE.DirectionalLight(0xffe0c0, 0.3);
-    fill.position.set(0, 100, 250);
+    // South fill: a dim warm light from the south so camera-facing
+    // surfaces never go pitch black at sunset, when the sun is low
+    // in the west and the camera looks north up the strip.
+    var fill = new THREE.DirectionalLight(0xffc890, 0.25);
+    fill.position.set(40, 90, 220);
     scene.add(fill);
     return { sun: sun, amb: amb, hemi: hemi, fill: fill };
   }
@@ -112,49 +133,49 @@
     var day = Math.max(0, Math.min(1, elev * 1.6 + 0.25));
     var sun = lights.sun;
     sun.position.set(Math.cos(sunAngle) * 220, Math.max(20, elev * 220 + 30), 90);
-    // night floor raised: the old 0.15/0.18/0.12 left the night scenes
-    // nearly black; the top entries' nights stay readable (lit windows,
-    // neon, lamps). Day stays the same, night is now visible.
     sun.intensity = 0.25 + day * 1.0;
-    // warm the sun itself at sunset: orange-pink light, long shadows.
+    // warmer sun at sunset: white-gold at noon, deep orange low down.
     if (day > 0.6) sun.color.setHex(0xffe8c0);
-    else if (day > 0.25) sun.color.setHex(0xff9a60);
+    else if (day > 0.25) sun.color.setHex(0xff9a4a);
     else sun.color.setHex(0x8a9ac8);
-    lights.amb.intensity = 0.30 + day * 0.35;
-    lights.hemi.intensity = 0.20 + day * 0.25;
+    lights.amb.intensity = 0.30 + day * 0.5;
+    lights.hemi.intensity = 0.20 + day * 0.4;
+    if (lights.fill) lights.fill.intensity = day > 0.25 && day <= 0.6 ? 0.4 : 0.25;
     var sky = new THREE.Color();
     if (day > 0.6) sky.setHex(0x87b5d6);
-    else if (day > 0.25) sky.setHex(0xdd7a6a);     // sunset pink-orange
+    else if (day > 0.25) sky.setHex(0xf07850);     // sunset pink-orange
     else sky.setHex(0x1a2440);                     // night blue
     scene.background = sky;
     scene.fog.color.copy(sky);
-    // tint the sky dome + clouds with the same time of day, so the dome
-    // never stays bright blue at night.
+    // the sky dome: day texture by day, the sunset texture through
+    // sunset (a tint alone cannot turn blue orange), day texture again
+    // at night with a dark tint.
     var domeMat = scene.userData.skyDomeMat;
     if (domeMat) {
-      if (day > 0.6) domeMat.color.setHex(0xffffff);
-      else if (day > 0.25) domeMat.color.setHex(0xffa0a0);
+      var wantTex = (day > 0.25 && day <= 0.6) ? scene.userData.skySunsetTex : scene.userData.skyDayTex;
+      if (domeMat.map !== wantTex) { domeMat.map = wantTex; domeMat.needsUpdate = true; }
+      if (day > 0.25) domeMat.color.setHex(0xffffff);
       else domeMat.color.setHex(0x33405e);
     }
     var cloudMat = scene.userData.cloudMat;
     if (cloudMat) {
       if (day > 0.6) cloudMat.color.setHex(0xffffff);
-      else if (day > 0.25) cloudMat.color.setHex(0xf0a0a0);
+      else if (day > 0.25) cloudMat.color.setHex(0xf0a080);
       else cloudMat.color.setHex(0x2a3348);
     }
-    // place the sun disc in the sun's direction, far out, facing the
-    // camera (lookAt origin). Big and orange at sunset, pale at noon,
-    // hidden at night.
+    // the sun disc: visible from late afternoon through sunset, growing
+    // and turning pink as it sinks; gone once the sky goes night blue.
     var disc = scene.userData.sunDisc;
     if (disc) {
-      var sd = new THREE.Vector3(sun.position.x, sun.position.y, sun.position.z).normalize();
-      disc.position.set(sd.x * 740, Math.max(30, sd.y * 740), sd.z * 740);
-      disc.lookAt(0, 40, 0);
       if (day > 0.25) {
         disc.visible = true;
-        var s = day > 0.6 ? 1.0 : 1.5;
-        disc.scale.set(s, s, 1);
-        scene.userData.sunDiscMat.color.setHex(day > 0.6 ? 0xfff2c0 : 0xff8a50);
+        var sink = (0.6 - day) / 0.35;            // 0 at high sun, 1 at sunset
+        sink = Math.max(0, Math.min(1, sink));
+        var sc = 1 + sink * 0.7;
+        disc.scale.set(sc, sc, 1);
+        disc.position.y = 70 - sink * 30;
+        disc.material.color.setHex(sink > 0.6 ? 0xff6a5a : 0xffd27a);
+        disc.material.opacity = 0.95;
       } else {
         disc.visible = false;
       }

@@ -1,128 +1,155 @@
 // Solmarina Heat - map.js
-// Full city map screen (N key): whole city top-down with district names,
-// roads, water, player marker, mission marker and a route line, plus a
-// story job list on the left and a legend on the right.
+// Full city map screen (N key): top-down canvas with districts, roads,
+// buildings, water, beach and bridge, plus the story job list, a legend
+// and run stats. The map pauses the action while it is open.
 (function () {
   'use strict';
   var C = window.SH_CONFIG;
-  var DEFS = window.SH_MISSIONS.DEFS;
 
-  function draw(el, game) {
-    // jobs list (left)
-    var jobs = '<div class="map-sec-title">STORY</div><div class="map-jobs-count">' +
-      (game.missions.idx) + ' / ' + DEFS.length + ' jobs</div>';
-    DEFS.forEach(function (m, i) {
-      var status, cls;
-      if (i < game.missions.idx) { status = 'Complete'; cls = 'done'; }
-      else if (i === game.missions.idx) { status = game.missions.state === 'active' ? 'In progress' : 'Next'; cls = 'cur'; }
-      else { status = 'Locked'; cls = 'locked'; }
-      jobs += '<div class="map-job ' + cls + '"><div class="map-job-name">' + (i + 1) + '. ' + m.name +
-        '</div><div class="map-job-meta">' + status + ' &nbsp; $' + m.reward + '</div></div>';
-    });
-    var cur = game.missions.current();
-    jobs += '<div class="map-cur"><div class="map-sec-title">CURRENT JOB</div>' +
-      (cur ? '<div class="map-job-name">' + cur.name + '</div><div class="map-job-meta">' +
-        (game.missions.currentStep() ? game.missions.currentStep().text : '') + '</div>' : 'All jobs done.') + '</div>';
-    el.mapJobs.innerHTML = jobs;
+  function buildMap() {
+    var ov = document.createElement('div');
+    ov.id = 'map-overlay';
+    ov.style.display = 'none';
+    ov.innerHTML =
+      '<div id="map-header"><span id="map-title">SOLMARINA HEAT</span> CITY MAP' +
+        '<span id="map-close">N / Esc close</span></div>' +
+      '<div id="map-body">' +
+        '<div id="map-jobs"><div class="map-panel-title">STORY</div><div id="map-jobs-list"></div>' +
+          '<div id="map-current"><div class="map-panel-title">CURRENT JOB</div><div id="map-current-body"></div></div></div>' +
+        '<canvas id="map-canvas" width="620" height="620"></canvas>' +
+        '<div id="map-right"><div class="map-panel-title">LEGEND</div><div id="map-legend">' +
+          '<div><span class="map-dot" style="background:#4ac97a"></span> You are here</div>' +
+          '<div><span class="map-dot" style="background:#ffd23e"></span> Job objective</div>' +
+          '<div><span class="map-dot" style="background:#4488ff"></span> Police</div>' +
+          '<div><span class="map-dot" style="background:#ff4444"></span> Enemy</div>' +
+          '<div><span class="map-dot" style="background:#e8e8e8"></span> Traffic</div>' +
+          '<div><span class="map-dot" style="background:#c9a0ff"></span> Garage</div>' +
+          '</div>' +
+          '<div id="map-stats"></div></div>' +
+      '</div>';
+    document.body.appendChild(ov);
+    return {
+      overlay: ov,
+      canvas: document.getElementById('map-canvas'),
+      jobsList: document.getElementById('map-jobs-list'),
+      currentBody: document.getElementById('map-current-body'),
+      stats: document.getElementById('map-stats'),
+      _lastJobs: '', _lastStats: ''
+    };
+  }
 
-    // legend + stats (right)
-    el.mapSide.innerHTML =
-      '<div class="map-sec-title">LEGEND</div>' +
-      '<div class="map-leg"><span class="dot you"></span> You are here</div>' +
-      '<div class="map-leg"><span class="dot obj"></span> Job objective</div>' +
-      '<div class="map-leg"><span class="dot police"></span> Police</div>' +
-      '<div class="map-leg"><span class="dot garage"></span> Garage (Palmetto Strip)</div>' +
-      '<div class="map-leg"><span class="dot water"></span> Bay / water</div>' +
-      '<div class="map-stats">Cash $' + Math.floor(game.player.money).toLocaleString('en-US') +
-      '<br>Missions ' + game.missions.idx + ' / ' + DEFS.length +
-      '<br>Wanted ' + game.police.stars + ' / 5 stars</div>';
-
-    // map canvas
-    var ctx = el.mapCanvas.getContext('2d');
-    var W = el.mapCanvas.width, H = el.mapCanvas.height;
-    var scale = Math.min(W, H) / C.CITY_SIZE;
-    var ox = (W - C.CITY_SIZE * scale) / 2, oy = (H - C.CITY_SIZE * scale) / 2;
-    var half = C.CITY_SIZE / 2;
-    function mx(x) { return ox + (x + half) * scale; }
-    function mz(z) { return oy + (z + half) * scale; }
-    ctx.fillStyle = '#14181f';
-    ctx.fillRect(0, 0, W, H);
-    // districts (quadrants)
+  function drawMap(el, game) {
+    var ctx = el.canvas.getContext('2d');
+    var S = 620, half = C.CITY_SIZE / 2;
+    function px(x) { return (x + half) / C.CITY_SIZE * S; }
+    function pz(z) { return (z + half) / C.CITY_SIZE * S; }
+    // district quadrant tints
     var quads = [
-      { x0: -half, z0: -half, x1: 0, z1: 0, color: '#2a4a5a', name: 'Marina Bay' },
-      { x0: 0, z0: -half, x1: half, z1: 0, color: '#5a3a28', name: 'Palmetto Strip' },
-      { x0: -half, z0: 0, x1: 0, z1: half, color: '#3a4a2a', name: 'Las Brisas' },
-      { x0: 0, z0: 0, x1: half, z1: half, color: '#4a3226', name: 'Old Cannery' }
+      { x0: -half, z0: -half, x1: 0, z1: 0, c: '#2a4a5a' },
+      { x0: 0, z0: -half, x1: half, z1: 0, c: '#5a4030' },
+      { x0: -half, z0: 0, x1: 0, z1: C.WATER_Y, c: '#3a4a2a' },
+      { x0: 0, z0: 0, x1: half, z1: C.WATER_Y, c: '#4a3a2a' }
     ];
+    ctx.fillStyle = '#1a2a3a';
+    ctx.fillRect(0, 0, S, S);
     quads.forEach(function (q) {
-      ctx.fillStyle = q.color;
-      ctx.fillRect(mx(q.x0), mz(q.z0), (q.x1 - q.x0) * scale, (q.z1 - q.z0) * scale);
+      ctx.fillStyle = q.c;
+      ctx.fillRect(px(q.x0), pz(q.z0), px(q.x1) - px(q.x0), pz(q.z1) - pz(q.z0));
     });
-    // water (south bay)
+    // water + beach
     ctx.fillStyle = '#1a5a7a';
-    ctx.fillRect(mx(-half), mz(C.WATER_Y), C.CITY_SIZE * scale, (half - C.WATER_Y) * scale);
-    // beach
+    ctx.fillRect(0, pz(C.WATER_Y), S, S - pz(C.WATER_Y));
     ctx.fillStyle = '#d8c89a';
-    ctx.fillRect(mx(-half), mz(C.WATER_Y - 16), C.CITY_SIZE * scale, 16 * scale);
-    // roads
-    ctx.fillStyle = '#c8c0a8';
-    game.city.roadsX.forEach(function (z) { ctx.fillRect(mx(-half), mz(z) - 2, C.CITY_SIZE * scale, 4); });
-    game.city.roadsZ.forEach(function (x) { ctx.fillRect(mx(x) - 2, mz(-half), 4, C.CITY_SIZE * scale); });
-    // buildings
-    ctx.fillStyle = '#8a8478';
-    game.city.buildings.forEach(function (b) {
-      ctx.fillRect(mx(b.minX), mz(b.minZ), (b.maxX - b.minX) * scale, (b.maxZ - b.minZ) * scale);
-    });
+    ctx.fillRect(0, pz(C.WATER_Y - 16), S, pz(C.WATER_Y) - pz(C.WATER_Y - 16));
     // bridge
-    ctx.fillStyle = '#b8b8b8';
-    ctx.fillRect(mx(C.BRIDGE_X - C.BRIDGE_WIDTH / 2), mz(C.WATER_Y), C.BRIDGE_WIDTH * scale, (half - C.WATER_Y) * scale);
-    // district labels
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 15px Arial';
-    ctx.textAlign = 'center';
-    quads.forEach(function (q) {
-      ctx.fillText(q.name, mx((q.x0 + q.x1) / 2), mz((q.z0 + q.z1) / 2));
+    ctx.fillStyle = '#8a8a8a';
+    ctx.fillRect(px(-C.BRIDGE_WIDTH / 2), pz(C.WATER_Y - 16), px(C.BRIDGE_WIDTH / 2) - px(-C.BRIDGE_WIDTH / 2), S - pz(C.WATER_Y - 16));
+    // roads
+    ctx.fillStyle = '#b8b0a0';
+    game.city.roadsX.forEach(function (z) { ctx.fillRect(0, pz(z) - 4, S, 8); });
+    game.city.roadsZ.forEach(function (x) { ctx.fillRect(px(x) - 4, 0, 8, S); });
+    // buildings
+    ctx.fillStyle = '#6a6a60';
+    game.city.buildings.forEach(function (b) {
+      ctx.fillRect(px(b.minX), pz(b.minZ), px(b.maxX) - px(b.minX), px(b.maxZ) - pz(b.minZ));
     });
-    // garage marker (Palmetto Strip, mission 1 target)
-    ctx.fillStyle = '#4ac97a';
-    ctx.beginPath(); ctx.arc(mx(52), mz(0), 6, 0, Math.PI * 2); ctx.fill();
+    // district names
     ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 17px Arial';
+    ctx.textAlign = 'center';
+    C.DISTRICTS.forEach(function (d) {
+      ctx.fillText(d.name.toUpperCase(), px(d.cx), pz(d.cz));
+    });
+    // garage marker (mission 1 destination, Palmetto Strip)
+    ctx.fillStyle = '#c9a0ff';
+    ctx.beginPath(); ctx.arc(px(52), pz(0), 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1a1a1a';
     ctx.font = 'bold 11px Arial';
-    ctx.fillText('GARAGE', mx(52), mz(0) - 10);
-    // route + mission beacon
-    var px = game.playerCar ? game.playerCar.x : game.player.x;
-    var pz = game.playerCar ? game.playerCar.z : game.player.z;
+    ctx.fillText('G', px(52), pz(0) + 4);
+    // mission beacon + route line from the player
     var step = game.missions.currentStep();
+    var pxp = game.playerCar ? game.playerCar.x : game.player.x;
+    var pzp = game.playerCar ? game.playerCar.z : game.player.z;
     if (game.missions.state === 'active' && step && step.x !== undefined) {
       ctx.strokeStyle = '#ffd23e';
       ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(mx(px), mz(pz));
-      ctx.lineTo(mx(step.x), mz(step.z));
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px(pxp), pz(pzp)); ctx.lineTo(px(step.x), pz(step.z)); ctx.stroke();
       ctx.fillStyle = '#ffd23e';
-      ctx.beginPath(); ctx.arc(mx(step.x), mz(step.z), 8, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#14181f';
-      ctx.font = 'bold 11px Arial';
-      ctx.fillText('!', mx(step.x), mz(step.z) + 4);
+      ctx.beginPath(); ctx.arc(px(step.x), pz(step.z), 9, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1a1a1a';
+      ctx.font = 'bold 12px Arial';
+      ctx.fillText('!', px(step.x), pz(step.z) + 4);
     }
-    // police dots
+    // traffic
+    ctx.fillStyle = '#e8e8e8';
+    game.traffic.cars.forEach(function (c) { ctx.fillRect(px(c.x) - 3, pz(c.z) - 3, 6, 6); });
+    // police
     ctx.fillStyle = '#4488ff';
-    game.police.cars.forEach(function (c) {
-      ctx.beginPath(); ctx.arc(mx(c.x), mz(c.z), 4, 0, Math.PI * 2); ctx.fill();
-    });
-    // player marker (green triangle)
+    game.police.cars.forEach(function (c) { ctx.beginPath(); ctx.arc(px(c.x), pz(c.z), 5, 0, Math.PI * 2); ctx.fill(); });
+    // enemies
+    ctx.fillStyle = '#ff4444';
+    game.combat.enemies.forEach(function (e) { ctx.beginPath(); ctx.arc(px(e.x), pz(e.z), 5, 0, Math.PI * 2); ctx.fill(); });
+    // player triangle, rotated by heading
+    var heading = game.playerCar ? game.playerCar.heading : game.player.heading;
     ctx.fillStyle = '#4ac97a';
-    ctx.beginPath();
-    ctx.moveTo(mx(px), mz(pz) - 9);
-    ctx.lineTo(mx(px) - 7, mz(pz) + 7);
-    ctx.lineTo(mx(px) + 7, mz(pz) + 7);
-    ctx.closePath();
-    ctx.fill();
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
-    ctx.stroke();
+    ctx.beginPath();
+    var tx = px(pxp), tz = pz(pzp);
+    ctx.moveTo(tx + Math.sin(heading) * 12, tz + Math.cos(heading) * 12);
+    ctx.lineTo(tx + Math.sin(heading + 2.5) * 9, tz + Math.cos(heading + 2.5) * 9);
+    ctx.lineTo(tx + Math.sin(heading - 2.5) * 9, tz + Math.cos(heading - 2.5) * 9);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // job list
+    var jobsKey = game.missions.idx + '|' + game.missions.state;
+    if (jobsKey !== el._lastJobs) {
+      el._lastJobs = jobsKey;
+      var html = '';
+      window.SH_MISSIONS.DEFS.forEach(function (m, i) {
+        var status = i < game.missions.idx ? 'Complete' : (i === game.missions.idx ? (game.missions.state === 'active' ? 'In progress' : 'Available') : 'Locked');
+        html += '<div class="map-job' + (i === game.missions.idx ? ' map-job-current' : '') + '">' +
+          '<div class="map-job-name">' + (i + 1) + '. ' + m.name.toUpperCase() + '</div>' +
+          '<div class="map-job-meta">' + status + ' - $' + m.reward + '</div></div>';
+      });
+      el.jobsList.innerHTML = html;
+      var cur = game.missions.current();
+      el.currentBody.innerHTML = cur
+        ? '<div class="map-job-name">' + cur.name.toUpperCase() + '</div>' +
+          '<div class="map-job-meta">' + (game.missions.currentStep() ? game.missions.currentStep().text : '') + '</div>'
+        : '<div class="map-job-name">ALL JOBS DONE</div><div class="map-job-meta">Solmarina is yours.</div>';
+    }
+    // stats
+    var sKey = Math.floor(game.player.money) + '|' + game.missions.idx + '|' + game.police.stars;
+    if (sKey !== el._lastStats) {
+      el._lastStats = sKey;
+      el.stats.innerHTML = '<div>Cash <b>$' + Math.floor(game.player.money) + '</b></div>' +
+        '<div>Jobs done <b>' + game.missions.idx + ' / ' + C.MISSION_COUNT + '</b></div>' +
+        '<div>Wanted <b>' + game.police.stars + ' stars</b></div>';
+    }
   }
 
-  window.SH_MAP = { draw: draw };
+  function show(el) { el.overlay.style.display = 'block'; }
+  function hide(el) { el.overlay.style.display = 'none'; }
+
+  window.SH_MAP = { buildMap: buildMap, drawMap: drawMap, show: show, hide: hide };
 })();

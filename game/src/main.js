@@ -6,7 +6,7 @@
   var IN = window.SH_INPUT;
   var RND = window.SH_RANDOM;
 
-  var canvas, renderer, scene, lights, city, hud;
+  var canvas, renderer, scene, lights, city, hud, mapEl;
   var game = null;
 
   // Player figure: simple readable person (shirt, head, cap, arms, legs).
@@ -64,23 +64,9 @@
       prompt: '',
       saveFlash: 0,
       endTimer: 0,
-      mapOpen: false,           // city map overlay open (paused)
+      mapOpen: false,            // city map overlay open (N)
       shot: null                // staged scene name from ?shot=
     };
-  }
-
-  // City map overlay: opens on top of the paused game.
-  function openMap() {
-    game.mapOpen = true;
-    game.state = 'paused';
-    window.SH_HUD.hideCenter(hud);
-    hud.map.style.display = 'block';
-    window.SH_MAP.draw(hud, game);
-  }
-  function closeMap() {
-    game.mapOpen = false;
-    game.state = 'playing';
-    hud.map.style.display = 'none';
   }
 
   function init() {
@@ -90,6 +76,7 @@
     lights = window.SH_RENDER.createLights(scene);
     city = window.SH_CITY.buildCity(scene);
     hud = window.SH_HUD.buildHUD();
+    mapEl = window.SH_MAP.buildMap();
     IN.init(canvas);
 
     game = newGame();
@@ -152,7 +139,9 @@
       // wasted, busted), so the minimap is never a black box.
       window.SH_HUD.updateHUD(hud, game);
       window.SH_HUD.drawMinimap(hud, game);
-      if (game.mapOpen) window.SH_MAP.draw(hud, game);
+      // city map redraws every frame while open, so the player dot,
+      // police dots and route line track the live game.
+      if (game.mapOpen) window.SH_MAP.drawMap(mapEl, game);
       IN.endFrame();
     }
     requestAnimationFrame(frame);
@@ -231,28 +220,39 @@
       window.SH_RENDER.updateCamera(renderer._cam || (renderer._cam = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 1000)), { x: 0, z: 0 }, game.yaw, 0.3);
       return;
     }
+    // city map open: freeze the game, N / Esc / P closes it
+    if (game.mapOpen) {
+      if (IN.consumePressed('n') || IN.consumePressed('escape') || IN.consumePressed('p')) {
+        game.mapOpen = false;
+        window.SH_MAP.hide(mapEl);
+      }
+      return;
+    }
     if (game.state === 'wasted' || game.state === 'busted' || game.state === 'complete') {
       game.endTimer += dt;
       if (game.endTimer > 1 && IN.consumePressed('r')) respawn();
       return;
     }
-    // paused: P resumes, N toggles the city map, S saves. (The old code
-    // only checked P in the playing branch, so a paused game could never
-    // resume; the map overlay needs the same treatment.)
+    // paused: P resumes, S saves, N opens the map. The old code only
+    // checked P inside the playing branch below, so a paused game could
+    // never resume (and S on the pause screen never worked).
     if (game.state === 'paused') {
-      if (game.mapOpen) {
-        if (IN.consumePressed('n') || IN.consumePressed('escape') || IN.consumePressed('p')) closeMap();
-      } else {
-        if (IN.consumePressed('p')) {
-          game.state = 'playing';
-          window.SH_HUD.hideCenter(hud);
-        } else if (IN.consumePressed('n')) {
-          openMap();
-        } else if (IN.consumePressed('s')) {
-          if (window.SH_SAVE.save(game)) {
-            window.SH_HUD.showDialog(hud, 'System', 'Game saved.', 2500);
-          }
+      if (IN.consumePressed('p') || IN.consumePressed('escape')) {
+        game.state = 'playing';
+        window.SH_HUD.hideCenter(hud);
+        return;
+      }
+      if (IN.consumePressed('s')) {
+        if (window.SH_SAVE.save(game)) {
+          game.saveFlash = 3;
+          window.SH_HUD.showDialog(hud, 'System', 'Game saved.', 2500);
         }
+        return;
+      }
+      if (IN.consumePressed('n')) {
+        game.mapOpen = true;
+        window.SH_MAP.show(mapEl);
+        return;
       }
       return;
     }
@@ -261,12 +261,14 @@
     // pause
     if (IN.consumePressed('p')) {
       game.state = 'paused';
-      window.SH_HUD.showCenter(hud, 'PAUSED', 'Press P to resume - S to save - N for city map');
+      window.SH_HUD.showCenter(hud, 'PAUSED', 'Press P to resume - S to save');
       return;
     }
-    // city map (from live play)
+
+    // city map (N)
     if (IN.consumePressed('n')) {
-      openMap();
+      game.mapOpen = true;
+      window.SH_MAP.show(mapEl);
       return;
     }
 

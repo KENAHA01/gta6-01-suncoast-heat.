@@ -83,9 +83,8 @@
       if (v < C.WATER_Y + 40) roadsZ.push(v);
     }
 
-    // Roads: dark strips along every street line. Lighter than before:
-    // near-black asphalt read as a void at sunset; this reads as road.
-    var roadMat = mat(0x4a4a52);
+    // Roads: dark strips along every street line
+    var roadMat = mat(0x565660);
     roadsX.forEach(function (z) {
       var r = new THREE.Mesh(new THREE.PlaneGeometry(C.CITY_SIZE, C.ROAD_WIDTH), roadMat);
       r.rotation.x = -Math.PI / 2;
@@ -273,9 +272,8 @@
               box(d * 0.7, 0.9, 0.4, awnCol, x, 3.6, z + face.dir * (d / 2 + 0.15), group);
             }
           }
-          // lit windows: warm glowing windows on the street face, so
-          // facades feel inhabited at dusk and night. More of them now:
-          // night life is half the top entries' look.
+          // lit windows: a few warm glowing windows on the street face,
+          // so facades feel inhabited at dusk and night.
           if (R.chance(0.5)) {
             var litMat = new THREE.MeshLambertMaterial({ color: 0xffe0a0, emissive: 0x775522 });
             for (var lw = 0; lw < 3; lw++) {
@@ -354,62 +352,72 @@
       trees.push({ x: px, z: C.WATER_Y - 8 });
     }
 
-    // Neon billboards: big glowing signs with OUR original Solmarina
-    // names, on poles along the main strip. Canvas-drawn text on an
-    // unlit plane, so they glow at night like real neon. They face +z
-    // (south), toward a camera driving the strip heading north.
-    function makeSign(text, sub, fg, bg) {
-      var cv = document.createElement('canvas');
-      cv.width = 512; cv.height = 160;
-      var cx = cv.getContext('2d');
-      cx.fillStyle = bg;
-      cx.fillRect(0, 0, 512, 160);
-      cx.strokeStyle = fg; cx.lineWidth = 6;
-      cx.strokeRect(8, 8, 496, 144);
-      cx.fillStyle = fg;
-      cx.textAlign = 'center';
-      cx.font = 'bold 62px Arial';
-      cx.fillText(text, 256, 80);
-      cx.font = 'bold 28px Arial';
-      cx.fillText(sub, 256, 128);
-      var tex = new THREE.CanvasTexture(cv);
-      return new THREE.Mesh(
-        new THREE.PlaneGeometry(16, 5),
-        new THREE.MeshBasicMaterial({ map: tex, fog: false })
-      );
-    }
-    var signDefs = [
-      { text: 'SOLMARINA FM', sub: '88.1 - NEON DRIVE', fg: '#ff5aa0', bg: '#1a0a18', z: -104 },
-      { text: 'CLUB PALMETTO', sub: 'DANCE ALL NIGHT', fg: '#4ae8ff', bg: '#08131a', z: 0 },
-      { text: 'MARINA BAY HOTEL', sub: 'ROOMS - POOL - BAR', fg: '#ffd23e', bg: '#141008', z: 104 }
-    ];
-    signDefs.forEach(function (sd) {
-      var sign = makeSign(sd.text, sd.sub, sd.fg, sd.bg);
-      sign.position.set(12, 6.5, sd.z);
-      group.add(sign);
-      var poleL = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 4, 6), poleMat);
-      poleL.position.set(5, 2, sd.z);
-      group.add(poleL);
-      var poleR = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 4, 6), poleMat);
-      poleR.position.set(19, 2, sd.z);
-      group.add(poleR);
-    });
-
-    // Palm boulevard: palms lining both sidewalks of the main strip
-    // (x = +-10.5), so the drive into the sunset feels like a real
-    // coastal boulevard. Same sphere-crown palm as the beach.
-    for (var bp = -156; bp <= 156; bp += 26) {
-      [-10.5, 10.5].forEach(function (bx) {
-        var btrunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.32, 6, 6), palmTrunk);
-        btrunk.position.set(bx, 3, bp);
+    // Palm-lined boulevard: 26 palms down both sidewalks of the main
+    // strip (x = 0, the road the chase shot drives up), so the strip
+    // reads as a resort avenue from the chase camera.
+    for (var bp = 0; bp < 13; bp++) {
+      var bz = -156 + bp * 26;
+      [-9.5, 9.5].forEach(function (bx) {
+        var btrunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, 5.5, 6), palmTrunk);
+        btrunk.position.set(bx, 2.75, bz);
         group.add(btrunk);
-        var bcrown = new THREE.Mesh(new THREE.SphereGeometry(1.9, 7, 5), palmTop);
-        bcrown.scale.y = 0.55;
-        bcrown.position.set(bx, 6.4, bp);
+        var bcrown = new THREE.Mesh(new THREE.SphereGeometry(1.7, 7, 5), palmTop);
+        bcrown.scale.y = 0.5;
+        bcrown.position.set(bx, 5.9, bz);
         group.add(bcrown);
-        trees.push({ x: bx, z: bp });
+        trees.push({ x: bx, z: bz });
       });
     }
+
+    // Neon billboards: big glowing signs with our own Solmarina names,
+    // canvas-drawn text on unlit material so they glow at night and
+    // read as landmarks in the chase and mission shots.
+    function neonSign(lines, accent, w, h, x, y, z, rotY) {
+      var sc = document.createElement('canvas');
+      sc.width = 512; sc.height = 192;
+      var sx = sc.getContext('2d');
+      sx.fillStyle = '#101018';
+      sx.fillRect(0, 0, 512, 192);
+      sx.strokeStyle = accent;
+      sx.lineWidth = 6;
+      sx.strokeRect(8, 8, 496, 176);
+      sx.fillStyle = accent;
+      sx.textAlign = 'center';
+      sx.font = 'bold 64px Arial';
+      sx.fillText(lines[0], 256, 84);
+      sx.font = 'bold 34px Arial';
+      sx.fillStyle = '#ffffff';
+      sx.fillText(lines[1], 256, 148);
+      var tex = new THREE.CanvasTexture(sc);
+      var face = new THREE.Mesh(
+        new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({ map: tex })
+      );
+      face.position.set(x, y, z);
+      face.rotation.y = rotY;
+      group.add(face);
+      var frame = new THREE.Mesh(new THREE.BoxGeometry(w + 0.6, h + 0.6, 0.4), mat(0x1a1a22));
+      frame.position.set(x, y, z);
+      frame.rotation.y = rotY;
+      frame.position.x -= Math.sin(rotY) * 0.3;
+      frame.position.z -= Math.cos(rotY) * 0.3;
+      group.add(frame);
+      // support posts down to the street, so the sign reads as a
+      // freestanding pylon, not a floating plane.
+      var postMat = mat(0x2a2a2a);
+      [-w / 2 + 1, w / 2 - 1].forEach(function (off) {
+        var post = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, y - h / 2, 6), postMat);
+        if (Math.abs(Math.sin(rotY)) > 0.5) post.position.set(x, (y - h / 2) / 2, z + off);
+        else post.position.set(x + off, (y - h / 2) / 2, z);
+        group.add(post);
+      });
+    }
+    // along the strip, facing the road so the chase camera sees them.
+    // The hotel sign sits at the north end (z = -130), clear of the
+    // night mission shot at the marina end of the strip.
+    neonSign(['SOLMARINA FM', '88.1 - NEON DRIVE'], '#ff5aa0', 16, 6, -14, 9, -30, Math.PI / 2);
+    neonSign(['CLUB PALMETTO', 'DANCE ALL NIGHT'], '#3ad0ff', 16, 6, 14, 9, 30, -Math.PI / 2);
+    neonSign(['MARINA BAY HOTEL', 'ROOMS - POOL - BAR'], '#ffd23e', 16, 6, -14, 9, -130, Math.PI / 2);
 
     // Collision helpers
     function isBlocked(x, z, radius) {

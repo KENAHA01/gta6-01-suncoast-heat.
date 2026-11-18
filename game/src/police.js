@@ -61,10 +61,12 @@
     this.unitIdx = 0;           // rotating index into C.POLICE_UNITS
   }
 
+  // Next named response unit (SPD-12, SPD-27, ...), cycling the pool so
+  // the HUD's SPD RESPONSE list shows distinct named units.
   Police.prototype.nextUnit = function () {
-    var name = C.POLICE_UNITS[this.unitIdx % C.POLICE_UNITS.length];
+    var u = C.POLICE_UNITS[this.unitIdx % C.POLICE_UNITS.length];
     this.unitIdx++;
-    return name;
+    return u;
   };
 
   Police.prototype.addHeat = function (amount) {
@@ -87,8 +89,8 @@
     v.group = buildPoliceCarMesh();
     v.group.position.set(x, 0, z);
     this.scene.add(v.group);
-    v.unit = this.nextUnit();
     v.speed = 10;
+    v.unit = this.nextUnit();
     this.cars.push(v);
   };
 
@@ -115,9 +117,8 @@
       v.group = buildPoliceCarMesh();
       v.group.position.set(px, 0, pz);
       v.group.rotation.y = playerHeading + Math.PI / 2;
-      v.unit = this.nextUnit();
-      v.roadblock = true;
       this.scene.add(v.group);
+      v.unit = this.nextUnit();
       this.roadblocks.push(v);
     }
   };
