@@ -31,6 +31,25 @@
     return m;
   }
 
+  // Which side of a building faces the nearest street? Returns
+  // {axis: 'x'|'z', dir: +1|-1} meaning the facade on that side.
+  // roadsX holds z-values of east-west streets, roadsZ holds x-values
+  // of north-south streets.
+  function nearestRoadFace(x, z, roadsX, roadsZ) {
+    var bestZ = null, bestDz = 1e9;
+    for (var i = 0; i < roadsZ.length; i++) {
+      var dz = Math.abs(x - roadsZ[i]);
+      if (dz < bestDz) { bestDz = dz; bestZ = roadsZ[i]; }
+    }
+    var bestX = null, bestDx = 1e9;
+    for (var j = 0; j < roadsX.length; j++) {
+      var dx = Math.abs(z - roadsX[j]);
+      if (dx < bestDx) { bestDx = dx; bestX = roadsX[j]; }
+    }
+    if (bestDz <= bestDx) return { axis: 'x', dir: bestZ >= x ? 1 : -1 };
+    return { axis: 'z', dir: bestX >= z ? 1 : -1 };
+  }
+
   function buildCity(scene) {
     var group = new THREE.Group();
     group.name = 'city';
@@ -90,6 +109,63 @@
       }
     });
 
+    // Sidewalks: a lighter warm strip under every road, wider than the
+    // asphalt, so each street reads as road + curb + pavement.
+    var walkMat = mat(0xb8a888);
+    roadsX.forEach(function (z) {
+      var s = new THREE.Mesh(new THREE.PlaneGeometry(C.CITY_SIZE, C.ROAD_WIDTH + 7), walkMat);
+      s.rotation.x = -Math.PI / 2;
+      s.position.set(0, 0.02, z);
+      group.add(s);
+    });
+    roadsZ.forEach(function (x) {
+      var s2 = new THREE.Mesh(new THREE.PlaneGeometry(C.ROAD_WIDTH + 7, C.CITY_SIZE), walkMat);
+      s2.rotation.x = -Math.PI / 2;
+      s2.position.set(x, 0.02, 0);
+      group.add(s2);
+    });
+
+    // Crosswalks + traffic lights at the nine central intersections:
+    // zebra stripes across the east-west road, and a pole with a
+    // red/amber/green head on one corner.
+    var crossMat = mat(0xe8e8d8);
+    var tlPoleMat = mat(0x2a2a2a);
+    var tlRed = new THREE.MeshLambertMaterial({ color: 0xcc2222, emissive: 0x550000 });
+    var tlAmber = new THREE.MeshLambertMaterial({ color: 0xcc9922, emissive: 0x443300 });
+    var tlGreen = new THREE.MeshLambertMaterial({ color: 0x22aa44, emissive: 0x003311 });
+    [-104, 0, 104].forEach(function (ix) {
+      [-104, 0, 104].forEach(function (iz) {
+        for (var cs = 0; cs < 5; cs++) {
+          var stripe = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 12), crossMat);
+          stripe.position.set(ix - 8 + cs * 2.2, 0.07, iz);
+          group.add(stripe);
+        }
+        var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 4.6, 6), tlPoleMat);
+        pole.position.set(ix + 9, 2.3, iz + 9);
+        group.add(pole);
+        var head = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.5, 0.5), tlPoleMat);
+        head.position.set(ix + 9, 5.1, iz + 9);
+        group.add(head);
+        [[tlRed, 5.6], [tlAmber, 5.1], [tlGreen, 4.6]].forEach(function (lamp) {
+          var bulb = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.35, 0.1), lamp[0]);
+          bulb.position.set(ix + 9, lamp[1], iz + 8.7);
+          group.add(bulb);
+        });
+      });
+    });
+
+    // Red hydrants along the main roads.
+    var hydMat = mat(0xaa2222);
+    for (var hy = 0; hy < 8; hy++) {
+      var hx = -156 + hy * 44, hz = -52 + (hy % 2) * 104;
+      var hyd = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.35, 0.9, 8), hydMat);
+      hyd.position.set(hx, 0.45, hz + 8);
+      group.add(hyd);
+      var hydTop = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), hydMat);
+      hydTop.position.set(hx, 0.95, hz + 8);
+      group.add(hydTop);
+    }
+
     // Parks: two blocks with green ground + trees (same step/2 offset)
     var parkBlocks = [{ bx: -2, bz: 1 }, { bx: 2, bz: -1 }];
     parkBlocks.forEach(function (p) {
@@ -110,6 +186,21 @@
         top.position.set(tx, 4.2, tz);
         group.add(top);
         trees.push({ x: tx, z: tz });
+      }
+    });
+
+    // Benches in the parks (parkBlocks is defined just above).
+    var benchMat = mat(0x6a4a2a);
+    parkBlocks.forEach(function (p) {
+      var bcx = p.bx * step + step / 2, bcz = p.bz * step + step / 2;
+      for (var bi = 0; bi < 2; bi++) {
+        var bx2 = bcx + (bi === 0 ? -8 : 8), bz2 = bcz + 6;
+        var seat = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.15, 0.7), benchMat);
+        seat.position.set(bx2, 0.5, bz2);
+        group.add(seat);
+        var back = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.8, 0.12), benchMat);
+        back.position.set(bx2, 0.95, bz2 + 0.32);
+        group.add(back);
       }
     });
 
@@ -150,6 +241,54 @@
             var band = new THREE.Mesh(new THREE.BoxGeometry(w + 0.15, 0.9, d + 0.15), winMat);
             band.position.set(x, wy, z);
             group.add(band);
+          }
+          // setback top: tall buildings step in at the roof, so the
+          // skyline has real depth instead of flat-topped slabs.
+          if (h >= 18) {
+            var sw = w * 0.62, sd = d * 0.62, sh = h * 0.22;
+            var set = box(sw, sh, sd, jitterColor(base, 22), x, h + sh / 2, z, group);
+            set.castShadow = true;
+            var setBand = new THREE.Mesh(new THREE.BoxGeometry(sw + 0.15, 0.8, sd + 0.15), winMat);
+            setBand.position.set(x, h + sh / 2, z);
+            group.add(setBand);
+          }
+          // parapet accent: a warm rim at the roofline on some buildings.
+          if (R.chance(0.25)) {
+            box(w + 0.3, 0.6, d + 0.3, 0xe8d8b0, x, h - 0.3, z, group);
+          }
+          // storefronts: ground-floor awning + sign strip on the side
+          // facing the nearest street, so the base of each building
+          // reads as shops instead of a blank wall.
+          var face = nearestRoadFace(x, z, roadsX, roadsZ);
+          if (R.chance(0.3)) {
+            var awnCol = [0xc94a3a, 0x2a7a6a, 0xe8b400, 0x3a6ac9][R.randInt(0, 3)];
+            if (face.axis === 'x') {
+              var sx = x + face.dir * (w / 2 + 0.6);
+              box(1.2, 0.25, w * 0.7, 0x3a3a3a, sx, 2.2, z, group);
+              box(0.4, 0.9, w * 0.7, awnCol, x + face.dir * (w / 2 + 0.15), 3.6, z, group);
+            } else {
+              var sz = z + face.dir * (d / 2 + 0.6);
+              box(d * 0.7, 0.25, 1.2, 0x3a3a3a, x, 2.2, sz, group);
+              box(d * 0.7, 0.9, 0.4, awnCol, x, 3.6, z + face.dir * (d / 2 + 0.15), group);
+            }
+          }
+          // lit windows: a few warm glowing windows on the street face,
+          // so facades feel inhabited at dusk and night.
+          if (R.chance(0.35)) {
+            var litMat = new THREE.MeshLambertMaterial({ color: 0xffe0a0, emissive: 0x775522 });
+            for (var lw = 0; lw < 2; lw++) {
+              var ly = 2.4 + R.randInt(0, Math.max(0, floors - 1)) * 5;
+              var lo = R.randRange(-w * 0.25, w * 0.25);
+              var win;
+              if (face.axis === 'x') {
+                win = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.1, 1.6), litMat);
+                win.position.set(x + face.dir * (w / 2 + 0.1), ly, z + lo);
+              } else {
+                win = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.1, 0.15), litMat);
+                win.position.set(x + lo, ly, z + face.dir * (d / 2 + 0.1));
+              }
+              group.add(win);
+            }
           }
           // rooftop box (AC unit / parapet) for silhouette variety
           if (R.chance(0.6)) box(w * 0.3, 1.2, d * 0.3, 0x8a8a7a, x + R.randRange(-3, 3), h + 0.6, z + R.randRange(-3, 3), group);

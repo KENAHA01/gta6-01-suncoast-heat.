@@ -22,6 +22,21 @@
     head.position.y = 1.65;
     head.castShadow = true;
     g.add(head);
+    // some pedestrians wear a hat, for variety at a glance
+    if (rng() < 0.4) {
+      var hat = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.1, 0.46), new THREE.MeshLambertMaterial({ color: 0x3a3a3a }));
+      hat.position.y = 1.9;
+      g.add(hat);
+    }
+    // arms pivot at the shoulder, swing opposite to the legs
+    var armGeo = new THREE.BoxGeometry(0.16, 0.65, 0.2);
+    armGeo.translate(0, -0.32, 0);
+    var armL = new THREE.Mesh(armGeo, shirt);
+    armL.position.set(-0.38, 1.38, 0);
+    g.add(armL);
+    var armR = new THREE.Mesh(armGeo, shirt);
+    armR.position.set(0.38, 1.38, 0);
+    g.add(armR);
     var legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.65, 0.25), pants);
     legL.position.set(-0.15, 0.32, 0);
     g.add(legL);
@@ -29,6 +44,7 @@
     legR.position.set(0.15, 0.32, 0);
     g.add(legR);
     g.userData.legs = [legL, legR];
+    g.userData.arms = [armL, armR];
     return g;
   }
 
@@ -111,11 +127,13 @@
         p.x += Math.sin(p.heading) * speed * dt;
         p.z += Math.cos(p.heading) * speed * dt;
       }
-      // leg swing
+      // leg + arm swing
       p.walkPhase += dt * speed * 3.2;
       var swing = Math.sin(p.walkPhase) * 0.45;
       p.mesh.userData.legs[0].rotation.x = swing;
       p.mesh.userData.legs[1].rotation.x = -swing;
+      var parms = p.mesh.userData.arms;
+      if (parms) { parms[0].rotation.x = -swing; parms[1].rotation.x = swing; }
       p.mesh.position.set(p.x, 0, p.z);
       p.mesh.rotation.y = p.heading;
     }

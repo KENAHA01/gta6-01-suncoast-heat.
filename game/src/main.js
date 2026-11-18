@@ -9,7 +9,7 @@
   var canvas, renderer, scene, lights, city, hud;
   var game = null;
 
-  // Player figure: simple box person (shirt, head, legs).
+  // Player figure: simple readable person (shirt, head, cap, arms, legs).
   function buildPlayerMesh() {
     var g = new THREE.Group();
     var shirt = new THREE.MeshLambertMaterial({ color: 0x2a6ac9 });
@@ -21,6 +21,25 @@
     var head = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.44, 0.44), skin);
     head.position.y = 1.66; head.castShadow = true;
     g.add(head);
+    // red cap so the hero reads at a glance, even from behind
+    var cap = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.12, 0.48), new THREE.MeshLambertMaterial({ color: 0xc92a2a }));
+    cap.position.y = 1.92;
+    g.add(cap);
+    var brim = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.06, 0.2), new THREE.MeshLambertMaterial({ color: 0xc92a2a }));
+    brim.position.set(0, 1.88, 0.3);
+    g.add(brim);
+    // arms pivot at the shoulder: geometry translated down so the
+    // rotation point sits at the shoulder, not the arm's middle.
+    var armGeo = new THREE.BoxGeometry(0.18, 0.7, 0.22);
+    armGeo.translate(0, -0.35, 0);
+    var armL = new THREE.Mesh(armGeo, shirt);
+    armL.position.set(-0.42, 1.4, 0);
+    armL.castShadow = true;
+    g.add(armL);
+    var armR = new THREE.Mesh(armGeo, shirt);
+    armR.position.set(0.42, 1.4, 0);
+    armR.castShadow = true;
+    g.add(armR);
     var legL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.65, 0.26), pants);
     legL.position.set(-0.16, 0.32, 0);
     g.add(legL);
@@ -28,6 +47,7 @@
     legR.position.set(0.16, 0.32, 0);
     g.add(legR);
     g.userData.legs = [legL, legR];
+    g.userData.arms = [armL, armR];
     return g;
   }
 
@@ -111,6 +131,7 @@
       var step = 1 / 60;
       var n = 0;
       while (acc >= step && n < 5) { update(step); acc -= step; n++; }
+      window.SH_RENDER.updateClouds(scene, dt);
       render();
       // HUD + minimap update every frame, in every state (title, playing,
       // wasted, busted), so the minimap is never a black box.
@@ -296,6 +317,8 @@
       var swing = ml > 0.01 ? Math.sin(game.player.walkPhase) * 0.5 : 0;
       legs[0].rotation.x = swing;
       legs[1].rotation.x = -swing;
+      var arms = game.player.mesh.userData.arms;
+      if (arms) { arms[0].rotation.x = -swing; arms[1].rotation.x = swing; }
       // shooting: aim along the camera's horizontal forward direction, from
       // the player's chest height, so distant targets are hittable.
       if (IN.isMouseDown() || IN.consumePressed(' ')) {

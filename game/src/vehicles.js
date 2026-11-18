@@ -9,26 +9,74 @@
     if (!matCache[color]) matCache[color] = new THREE.MeshLambertMaterial({ color: color });
     return matCache[color];
   }
-  var glassMat = new THREE.MeshLambertMaterial({ color: 0x182838 });
+  var glassMat = new THREE.MeshLambertMaterial({ color: 0x2e4a62 });
   var darkMat = new THREE.MeshLambertMaterial({ color: 0x181818 });
   var tireMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
 
   // Build a car mesh group from a vehicle type spec. Returns {group, len, wid}.
+  // Each type has a distinct silhouette so it reads as that car, not a box:
+  // GT low and long with a spoiler, van tall with a full-length cabin,
+  // pickup with an open bed, sedan/cab with a set-back glass cabin.
   function buildCarMesh(spec) {
     var g = new THREE.Group();
     var L = spec.len, W = spec.wid;
-    var body = new THREE.Mesh(new THREE.BoxGeometry(W, 0.75, L), mat(spec.color));
-    body.position.y = 0.55;
+    var isGT = spec.name === 'Palmetto GT';
+    var isVan = spec.name === 'Brisas Van';
+    var isPickup = spec.name === 'Cannery Pickup';
+    var bodyH = isGT ? 0.6 : (isVan ? 1.05 : 0.75);
+    var bodyY = isGT ? 0.5 : 0.55;
+    var body = new THREE.Mesh(new THREE.BoxGeometry(W, bodyH, L), mat(spec.color));
+    body.position.y = bodyY;
     body.castShadow = true;
     g.add(body);
-    var cabin = new THREE.Mesh(new THREE.BoxGeometry(W * 0.82, 0.65, L * 0.45), glassMat);
-    cabin.position.set(0, 1.2, -L * 0.06);
+    // cabin: glass box, shape varies by type
+    var cabW = W * 0.82, cabH = isVan ? 0.75 : (isGT ? 0.5 : 0.65);
+    var cabL = isVan ? L * 0.82 : (isPickup ? L * 0.34 : L * 0.45);
+    var cabZ = isVan ? 0 : (isPickup ? L * 0.2 : -L * 0.06);
+    var cabY = bodyY + bodyH / 2 + cabH / 2 - 0.05;
+    var cabin = new THREE.Mesh(new THREE.BoxGeometry(cabW, cabH, cabL), glassMat);
+    cabin.position.set(0, cabY, cabZ);
     cabin.castShadow = true;
     g.add(cabin);
-    // hood + trunk hints
-    var hood = new THREE.Mesh(new THREE.BoxGeometry(W * 0.9, 0.18, L * 0.2), mat(spec.color));
-    hood.position.set(0, 0.98, L * 0.36);
-    g.add(hood);
+    // pickup bed: low side walls + tailgate behind the cabin
+    if (isPickup) {
+      var bedZ = -L * 0.24, bedL = L * 0.42;
+      var wallMat = mat(spec.color);
+      [[-W / 2 + 0.08, 0], [W / 2 - 0.08, 0]].forEach(function (p) {
+        var wall = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.55, bedL), wallMat);
+        wall.position.set(p[0], 1.0, bedZ);
+        g.add(wall);
+      });
+      var tail = new THREE.Mesh(new THREE.BoxGeometry(W, 0.55, 0.14), wallMat);
+      tail.position.set(0, 1.0, -L / 2 + 0.07);
+      g.add(tail);
+      var bedFloor = new THREE.Mesh(new THREE.BoxGeometry(W - 0.2, 0.1, bedL), darkMat);
+      bedFloor.position.set(0, 0.95, bedZ);
+      g.add(bedFloor);
+    }
+    // hood hint (skip on the van, whose cabin covers the front)
+    if (!isVan) {
+      var hood = new THREE.Mesh(new THREE.BoxGeometry(W * 0.9, 0.16, L * 0.2), mat(spec.color));
+      hood.position.set(0, bodyY + bodyH / 2 + 0.02, L * 0.36);
+      g.add(hood);
+    }
+    // GT spoiler on the trunk
+    if (isGT) {
+      var spoiler = new THREE.Mesh(new THREE.BoxGeometry(W * 0.9, 0.08, 0.3), darkMat);
+      spoiler.position.set(0, 1.0, -L / 2 + 0.15);
+      g.add(spoiler);
+      [[-W / 2 + 0.2, -L / 2 + 0.15], [W / 2 - 0.2, -L / 2 + 0.15]].forEach(function (p) {
+        var strut = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, 0.1), darkMat);
+        strut.position.set(p[0], 0.88, p[1]);
+        g.add(strut);
+      });
+    }
+    // bumpers front + rear
+    [[L / 2 + 0.02, 0], [-L / 2 - 0.02, 0]].forEach(function (p) {
+      var bump = new THREE.Mesh(new THREE.BoxGeometry(W * 0.96, 0.2, 0.22), darkMat);
+      bump.position.set(0, 0.32, p[0]);
+      g.add(bump);
+    });
     // headlights / taillights
     var hl = new THREE.MeshLambertMaterial({ color: 0xfff2b0, emissive: 0x554400 });
     [[-W / 2 + 0.25, L / 2], [W / 2 - 0.25, L / 2]].forEach(function (p) {
@@ -42,19 +90,32 @@
       l.position.set(p[0], 0.62, p[1]);
       g.add(l);
     });
-    // wheels
+    // wheels with hubcaps, visible from the side and rear
     var wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.3, 10);
+    var hubGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.34, 8);
+    var hubMat = new THREE.MeshLambertMaterial({ color: 0xaaaaaa });
     [[-W / 2 - 0.05, L * 0.32], [W / 2 + 0.05, L * 0.32], [-W / 2 - 0.05, -L * 0.32], [W / 2 + 0.05, -L * 0.32]].forEach(function (p) {
       var w = new THREE.Mesh(wheelGeo, tireMat);
       w.rotation.z = Math.PI / 2;
       w.position.set(p[0], 0.42, p[1]);
       g.add(w);
+      var hub = new THREE.Mesh(hubGeo, hubMat);
+      hub.rotation.z = Math.PI / 2;
+      hub.position.set(p[0], 0.42, p[1]);
+      g.add(hub);
     });
     // taxi sign for the cab
     if (spec.name === 'Bay Cab') {
       var sign = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.3, 0.4), new THREE.MeshLambertMaterial({ color: 0xffeebb, emissive: 0x665500 }));
       sign.position.set(0, 1.7, -L * 0.06);
       g.add(sign);
+      // checkered side stripe
+      var stripe = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.25, L * 0.7), darkMat);
+      stripe.position.set(W / 2 + 0.02, 0.7, 0);
+      g.add(stripe);
+      var stripe2 = stripe.clone();
+      stripe2.position.x = -W / 2 - 0.02;
+      g.add(stripe2);
     }
     return g;
   }
