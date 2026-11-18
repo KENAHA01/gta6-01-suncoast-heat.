@@ -13,13 +13,16 @@
   C.BRIDGE_X = 0;             // bridge crosses the bay at x = 0
   C.BRIDGE_WIDTH = 20;
 
-  // Districts: name, centre, palette (building colours, ground tint)
+  // Districts: name, centre, palette (building colours, ground tint).
+  // Muted sun-soaked coastal palette: warm sand, terracotta, soft teal,
+  // sage green, warm brick. No toy-bright saturated colours.
   C.DISTRICTS = [
-    { name: 'Marina Bay', cx: 0, cz: -130, color: 0x2e6f8e, ground: 0x3a7a8c },
-    { name: 'Palmetto Strip', cx: 0, cz: 0, color: 0xc96a2e, ground: 0x8a6a4a },
-    { name: 'Las Brisas', cx: -130, cz: 90, color: 0x7a9e4a, ground: 0x5a7a3a },
-    { name: 'Old Cannery', cx: 130, cz: 90, color: 0x8a4a3a, ground: 0x6a5a4a }
+    { name: 'Marina Bay', cx: 0, cz: -130, color: 0x5a8a9a, ground: 0x3a7a8c },
+    { name: 'Palmetto Strip', cx: 0, cz: 0, color: 0xc98a5a, ground: 0x8a6a4a },
+    { name: 'Las Brisas', cx: -130, cz: 90, color: 0x8aa06a, ground: 0x5a7a3a },
+    { name: 'Old Cannery', cx: 130, cz: 90, color: 0x9a6a52, ground: 0x6a5a4a }
   ];
+  C.WINDOW_COLOR = 0x33404e;   // dark window bands on building facades
 
   // Player
   C.WALK_SPEED = 6;           // m/s on foot
@@ -27,10 +30,13 @@
   C.PLAYER_HEALTH = 100;
   C.PLAYER_RADIUS = 0.7;
 
-  // Camera (third person, behind and above the player)
-  C.CAM_DIST = 11;
-  C.CAM_HEIGHT = 6.5;
-  C.CAM_LOOK_UP = 1.6;
+  // Camera (third person, behind and above the player).
+  // Low and close on purpose: a high steep camera reads as top-down 2D.
+  // At 4.2m up and 13m back the car shows its rear and sides, building
+  // facades and the road ahead read as real 3D depth.
+  C.CAM_DIST = 13;
+  C.CAM_HEIGHT = 4.2;
+  C.CAM_LOOK_UP = 1.8;
 
   // Vehicles: name, top speed (m/s), accel, brake, turn, grip, colour, size
   C.VEHICLES = [

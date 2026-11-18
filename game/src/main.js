@@ -191,7 +191,7 @@
       }
       // slow camera orbit on the title screen
       game.yaw += dt * 0.1;
-      window.SH_RENDER.updateCamera(renderer._cam || (renderer._cam = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000)), { x: 0, z: 0 }, game.yaw, 0.3);
+      window.SH_RENDER.updateCamera(renderer._cam || (renderer._cam = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 1000)), { x: 0, z: 0 }, game.yaw, 0.3);
       return;
     }
     if (game.state === 'wasted' || game.state === 'busted' || game.state === 'complete') {
@@ -384,7 +384,7 @@
   }
 
   function render() {
-    if (!renderer._cam) renderer._cam = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    if (!renderer._cam) renderer._cam = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 1000);
     var cam = renderer._cam;
     var target = game.playerCar
       ? { x: game.playerCar.x, z: game.playerCar.z }

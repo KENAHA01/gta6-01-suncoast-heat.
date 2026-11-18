@@ -169,9 +169,17 @@
       else { car.heading += Math.PI * 0.5; }
       car.group.position.set(car.x, 0, car.z);
       car.group.rotation.y = car.heading;
-      // ram the player's car
+      // ram the player's car: a bump, not a kill. The old code multiplied
+      // the player's speed by 0.55 EVERY frame while touching, which
+      // zeroed the car in a tenth of a second. Now one bump per second.
       if (playerCar && d2 < 4) {
-        playerCar.speed *= 0.55;
+        car.ramCooldown = (car.ramCooldown || 0) - dt;
+        if (car.ramCooldown <= 0) {
+          playerCar.speed *= 0.55;
+          car.ramCooldown = 1.0;
+        }
+      } else {
+        car.ramCooldown = (car.ramCooldown || 0) - dt;
       }
       // run the player over on foot
       if (!playerCar && d2 < 2.2 && !player.dead) {

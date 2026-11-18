@@ -73,7 +73,11 @@
       el.speed.textContent = '';
     }
     var m = game.missions.current();
-    if (game.missions.state === 'active' && m) {
+    // the objective line only belongs to live gameplay; on the title,
+    // wasted, busted and complete screens it overlaps the big overlay.
+    if (game.state !== 'playing' && game.state !== 'paused') {
+      el.objective.textContent = '';
+    } else if (game.missions.state === 'active' && m) {
       var step = game.missions.currentStep();
       el.objective.textContent = m.name + ': ' + (step ? step.text : '');
     } else if (game.missions.allDone()) {
