@@ -1,42 +1,32 @@
-// Solmarina Heat - seeded random numbers.
-// mulberry32: small, fast, and identical on every machine for one seed.
+// Solmarina Heat - random.js
+// Seeded RNG (mulberry32) so the city and screenshots are identical every run.
+(function () {
+  'use strict';
+  var C = window.SH_CONFIG;
 
-export function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function next() {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+  function mulberry32(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
 
-export function makeRng(seed) {
-  const next = mulberry32(seed);
-  return {
-    next,
-    range(min, max) {
-      return min + next() * (max - min);
-    },
-    int(min, max) {
-      return Math.floor(min + next() * (max - min + 1));
-    },
-    pick(list) {
-      return list[Math.floor(next() * list.length)];
-    },
-    chance(p) {
-      return next() < p;
-    },
-    shuffle(list) {
-      const out = list.slice();
-      for (let i = out.length - 1; i > 0; i -= 1) {
-        const j = Math.floor(next() * (i + 1));
-        const tmp = out[i];
-        out[i] = out[j];
-        out[j] = tmp;
-      }
-      return out;
-    },
+  var rng = mulberry32(C.SEED);
+
+  function rand() { return rng(); }
+  function randRange(min, max) { return min + rng() * (max - min); }
+  function randInt(min, max) { return Math.floor(randRange(min, max + 1)); }
+  function pick(arr) { return arr[Math.floor(rng() * arr.length)]; }
+  function chance(p) { return rng() < p; }
+
+  // Fresh independent stream (for traffic/pedestrian variety without touching city gen)
+  function stream(seed) { return mulberry32(seed); }
+
+  window.SH_RANDOM = {
+    rand: rand, randRange: randRange, randInt: randInt,
+    pick: pick, chance: chance, stream: stream, mulberry32: mulberry32
   };
-}
+})();

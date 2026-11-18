@@ -1,115 +1,69 @@
-// Solmarina Heat - shared constants.
-// One fixed seed drives the whole city so every screenshot matches.
+// Solmarina Heat - config.js
+// All tunable constants for the 3D game. One place, no magic numbers elsewhere.
+(function () {
+  'use strict';
+  var C = {};
 
-export const GAME_TITLE = "Solmarina Heat";
-export const SEED = 20261118;
+  // World
+  C.SEED = 20261118;
+  C.CITY_SIZE = 520;          // city is CITY_SIZE x CITY_SIZE metres, centred on 0,0
+  C.BLOCK = 52;               // street grid spacing (metres)
+  C.ROAD_WIDTH = 14;
+  C.WATER_Y = 170;            // south bay starts here (z beyond this is water)
+  C.BRIDGE_X = 0;             // bridge crosses the bay at x = 0
+  C.BRIDGE_WIDTH = 20;
 
-export const VIEW_W = 1280;
-export const VIEW_H = 720;
+  // Districts: name, centre, palette (building colours, ground tint)
+  C.DISTRICTS = [
+    { name: 'Marina Bay', cx: 0, cz: -130, color: 0x2e6f8e, ground: 0x3a7a8c },
+    { name: 'Palmetto Strip', cx: 0, cz: 0, color: 0xc96a2e, ground: 0x8a6a4a },
+    { name: 'Las Brisas', cx: -130, cz: 90, color: 0x7a9e4a, ground: 0x5a7a3a },
+    { name: 'Old Cannery', cx: 130, cz: 90, color: 0x8a4a3a, ground: 0x6a5a4a }
+  ];
 
-export const BLOCK = 150;
-export const ROAD = 46;
-export const COLS = 12;
-export const ROWS = 8;
-export const CELL = BLOCK + ROAD;
+  // Player
+  C.WALK_SPEED = 6;           // m/s on foot
+  C.RUN_SPEED = 10;           // m/s holding Shift
+  C.PLAYER_HEALTH = 100;
+  C.PLAYER_RADIUS = 0.7;
 
-export const CITY_W = COLS * CELL + ROAD;
-export const CITY_H = ROWS * CELL + ROAD;
-export const BAY_H = 260;
-export const BEACH_H = 120;
-export const WORLD_W = CITY_W;
-export const WORLD_H = CITY_H + BAY_H + BEACH_H;
+  // Camera (third person, behind and above the player)
+  C.CAM_DIST = 11;
+  C.CAM_HEIGHT = 6.5;
+  C.CAM_LOOK_UP = 1.6;
 
-export const WALK_SPEED = 190;
-export const STEP = 1 / 60;
+  // Vehicles: name, top speed (m/s), accel, brake, turn, grip, colour, size
+  C.VEHICLES = [
+    { name: 'Solmarina Sedan', top: 26, accel: 14, brake: 26, turn: 1.9, grip: 0.92, color: 0x3a6ac9, len: 4.4, wid: 2.0 },
+    { name: 'Bay Cab', top: 24, accel: 13, brake: 26, turn: 2.0, grip: 0.92, color: 0xe8b400, len: 4.4, wid: 2.0 },
+    { name: 'Cannery Pickup', top: 22, accel: 11, brake: 24, turn: 1.7, grip: 0.88, color: 0x7a4a2a, len: 5.0, wid: 2.1 },
+    { name: 'Palmetto GT', top: 38, accel: 20, brake: 30, turn: 2.3, grip: 0.86, color: 0xc92a2a, len: 4.2, wid: 1.9 },
+    { name: 'Brisas Van', top: 20, accel: 9, brake: 22, turn: 1.5, grip: 0.94, color: 0x4a7a8a, len: 5.4, wid: 2.2 }
+  ];
+  C.TRAFFIC_COUNT = 10;
+  C.PARKED_COUNT = 8;
+  C.PED_COUNT = 18;
 
-export const TRAFFIC_COUNT = 10;
-export const PED_COUNT = 18;
+  // Weapons: name, damage, fire rate (shots/sec), range (m), mag size, spread (rad), auto
+  C.WEAPONS = [
+    { name: 'Pistol', dmg: 25, rate: 3, range: 60, mag: 12, spread: 0.02, auto: false, color: 0x222222 },
+    { name: 'Shotgun', dmg: 14, rate: 1.1, range: 28, mag: 6, spread: 0.12, auto: false, pellets: 6, color: 0x5a3a1a },
+    { name: 'SMG', dmg: 14, rate: 9, range: 45, mag: 30, spread: 0.05, auto: true, color: 0x333344 },
+    { name: 'Rifle', dmg: 45, rate: 2.2, range: 110, mag: 20, spread: 0.01, auto: false, color: 0x2a3a2a }
+  ];
 
-export const BRIDGE_ROAD = 6;
+  // Wanted / police
+  C.WANTED_MAX = 5;
+  C.WANTED_DECAY_SEC = 45;    // seconds hidden before one star drops
+  C.POLICE_FOOT_SPEED = 5.5;
+  C.POLICE_CAR_TOP = 32;
 
-export const PARKS = [
-  { col: 2, row: 1 },
-  { col: 8, row: 5 },
-];
+  // Clock / day-night (game minutes per real second)
+  C.MIN_PER_SEC = 2;
+  C.DAY_START_MIN = 10 * 60;  // 10:00
 
-export const DISTRICTS = [
-  {
-    id: "marina",
-    name: "Marina Bay",
-    col0: 0,
-    col1: 5,
-    row0: 0,
-    row1: 3,
-    ground: "#9fc7b4",
-    buildings: ["#f4efe4", "#cfe3ea", "#8fb8c9", "#e8d9a8"],
-    accent: "#2e7f9e",
-  },
-  {
-    id: "palmetto",
-    name: "Palmetto Strip",
-    col0: 6,
-    col1: 11,
-    row0: 0,
-    row1: 3,
-    ground: "#e8c98f",
-    buildings: ["#ff9e7d", "#ffd166", "#5ec8c0", "#f7f3e8"],
-    accent: "#e4572e",
-  },
-  {
-    id: "brisas",
-    name: "Las Brisas",
-    col0: 0,
-    col1: 5,
-    row0: 4,
-    row1: 7,
-    ground: "#a8c98a",
-    buildings: ["#f2e3c6", "#d98f5f", "#c96f4a", "#efe6d0"],
-    accent: "#4a7c59",
-  },
-  {
-    id: "cannery",
-    name: "Old Cannery",
-    col0: 6,
-    col1: 11,
-    row0: 4,
-    row1: 7,
-    ground: "#b0a696",
-    buildings: ["#8a7f72", "#a4553f", "#6e6258", "#c2b49a"],
-    accent: "#7a3b2e",
-  },
-];
+  // Missions
+  C.MISSION_COUNT = 5;
 
-export const WATER = "#2f7fae";
-export const WATER_DEEP = "#1f5f8a";
-export const SAND = "#ecd9a0";
-export const ROAD_COLOR = "#3c3a38";
-export const ROAD_LINE = "#d8c95a";
-
-export const PLAYER_START = { x: 620, y: 480 };
-export const MARINA_MARKER = { x: 620, y: 300 };
-
-export function blockX(col) {
-  return ROAD + col * CELL;
-}
-
-export function blockY(row) {
-  return ROAD + row * CELL;
-}
-
-export function roadX(k) {
-  return k * CELL;
-}
-
-export function roadY(k) {
-  return k * CELL;
-}
-
-export function districtAt(col, row) {
-  for (const d of DISTRICTS) {
-    if (col >= d.col0 && col <= d.col1 && row >= d.row0 && row <= d.row1) {
-      return d;
-    }
-  }
-  return DISTRICTS[0];
-}
+  window.SH_CONFIG = C;
+})();

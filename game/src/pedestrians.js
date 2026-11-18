@@ -1,181 +1,125 @@
-// Solmarina Heat - AI pedestrians.
-// People walk the road edges between intersections, step aside for the
-// player on foot, and run when a fast car comes at them.
+// Solmarina Heat - pedestrians.js
+// AI pedestrians: walk road edges between intersections, step aside for the
+// player on foot, flee when a fast car closes in.
+(function () {
+  'use strict';
+  var C = window.SH_CONFIG;
+  var R = window.SH_RANDOM;
 
-import { SEED, CELL, ROAD, COLS, ROWS, WORLD_W, WORLD_H } from "./config.js";
-import { makeRng } from "./random.js";
+  var SHIRT_COLORS = [0xc94a4a, 0x4a7ac9, 0x4ac97a, 0xe8c84a, 0x9a4ac9, 0xe8e8e8, 0x3a3a3a];
+  var SKIN_COLORS = [0xe8b890, 0xc98a5a, 0x8a5a3a, 0xf0c8a0];
 
-const TARGET = 18;
-const SHIRTS = ["#e4572e", "#2e86ab", "#f2c200", "#4a7c59", "#8e44ad", "#e8e8e8", "#d62828", "#5d6b52"];
-const SKINS = ["#f2c79b", "#c98d5f", "#8a5a3b", "#e8b48a"];
+  function buildPedMesh(rng) {
+    var g = new THREE.Group();
+    var shirt = new THREE.MeshLambertMaterial({ color: SHIRT_COLORS[Math.floor(rng() * SHIRT_COLORS.length)] });
+    var skin = new THREE.MeshLambertMaterial({ color: SKIN_COLORS[Math.floor(rng() * SKIN_COLORS.length)] });
+    var pants = new THREE.MeshLambertMaterial({ color: 0x2a3a5a });
+    var body = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.75, 0.35), shirt);
+    body.position.y = 1.05;
+    body.castShadow = true;
+    g.add(body);
+    var head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), skin);
+    head.position.y = 1.65;
+    head.castShadow = true;
+    g.add(head);
+    var legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.65, 0.25), pants);
+    legL.position.set(-0.15, 0.32, 0);
+    g.add(legL);
+    var legR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.65, 0.25), pants);
+    legR.position.set(0.15, 0.32, 0);
+    g.add(legR);
+    g.userData.legs = [legL, legR];
+    return g;
+  }
 
-function interX(i) {
-  return i * CELL + ROAD / 2;
-}
-
-function interY(j) {
-  return j * CELL + ROAD / 2;
-}
-
-export class PedestrianManager {
-  constructor(city) {
+  function PedManager(city, scene) {
     this.city = city;
-    this.rng = makeRng(SEED + 131);
-    this.list = [];
+    this.scene = scene;
+    this.peds = [];
+    this.rng = R.stream(C.SEED + 131);
   }
 
-  spawnInitial(count) {
-    for (let n = 0; n < count; n += 1) {
-      this.spawnOne();
-    }
-  }
-
-  spawnOne() {
-    const i = this.rng.int(0, COLS);
-    const j = this.rng.int(0, ROWS);
-    const edge = this.rng.pick([-1, 1]);
-    const x = interX(i) + edge * this.rng.range(14, 20);
-    const y = interY(j) + this.rng.pick([-1, 1]) * this.rng.range(14, 20);
-    const p = {
-      x,
-      y,
-      tx: interX(this.rng.int(0, COLS)),
-      ty: interY(this.rng.int(0, ROWS)),
-      speed: this.rng.range(42, 58),
-      state: "walk",
-      fleeT: 0,
-      fx: 0,
-      fy: 0,
-      shirt: this.rng.pick(SHIRTS),
-      skin: this.rng.pick(SKINS),
-      phase: this.rng.range(0, Math.PI * 2),
+  PedManager.prototype.spawnOne = function () {
+    var rng = this.rng;
+    var alongX = rng() < 0.5;
+    var line = alongX ? this.city.roadsX[Math.floor(rng() * this.city.roadsX.length)]
+                      : this.city.roadsZ[Math.floor(rng() * this.city.roadsZ.length)];
+    var pos = R.randRange(-220, 220);
+    var dir = rng() < 0.5 ? 1 : -1;
+    var x, z;
+    if (alongX) { x = pos; z = line + (dir > 0 ? 8 : -8); }
+    else { x = line + (dir > 0 ? -8 : 8); z = pos; }
+    if (z > C.WATER_Y - 6) { z = C.WATER_Y - 10; }
+    var mesh = buildPedMesh(rng);
+    mesh.position.set(x, 0, z);
+    this.scene.add(mesh);
+    var p = {
+      mesh: mesh, x: x, z: z, alongX: alongX, line: line, dir: dir,
+      speed: R.randRange(1.2, 2.2), flee: 0, heading: alongX ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI),
+      walkPhase: rng() * Math.PI * 2
     };
-    this.list.push(p);
+    mesh.rotation.y = p.heading;
+    this.peds.push(p);
     return p;
-  }
+  };
 
-  pickTarget(p) {
-    p.tx = interX(this.rng.int(0, COLS));
-    p.ty = interY(this.rng.int(0, ROWS));
-  }
+  PedManager.prototype.init = function (count) {
+    for (var i = 0; i < count; i++) this.spawnOne();
+  };
 
-  stepBlocked(px, py) {
-    const half = 8;
-    return (
-      this.city.isBlocked(px - half, py - half) ||
-      this.city.isBlocked(px + half, py - half) ||
-      this.city.isBlocked(px - half, py + half) ||
-      this.city.isBlocked(px + half, py + half)
-    );
-  }
-
-  update(dt, cars, player) {
-    for (const p of this.list) {
-      p.phase += dt * 9;
-      if (p.state === "flee") {
-        p.fleeT -= dt;
-        const nx = p.x + p.fx * 130 * dt;
-        const ny = p.y + p.fy * 130 * dt;
-        if (!this.stepBlocked(nx, p.y)) {
-          p.x = nx;
-        }
-        if (!this.stepBlocked(p.x, ny)) {
-          p.y = ny;
-        }
-        p.x = Math.min(WORLD_W - 10, Math.max(10, p.x));
-        p.y = Math.min(WORLD_H - 10, Math.max(10, p.y));
-        if (p.fleeT <= 0) {
-          p.state = "walk";
-          this.pickTarget(p);
-        }
-        continue;
-      }
-
-      let threat = null;
-      let threatD = 95 * 95;
-      for (const c of cars) {
-        const sp = Math.abs(c.speed || 0);
-        if (sp < 80) {
-          continue;
-        }
-        const dx = p.x - c.x;
-        const dy = p.y - c.y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < threatD) {
-          threatD = d2;
-          threat = c;
-        }
+  PedManager.prototype.update = function (dt, player, playerCar, trafficCars) {
+    var half = C.CITY_SIZE / 2;
+    for (var i = 0; i < this.peds.length; i++) {
+      var p = this.peds[i];
+      // flee: a fast car (player's or traffic) closing in
+      var threat = null, threatD = 1e9;
+      var cars = playerCar ? trafficCars.concat([playerCar]) : trafficCars;
+      for (var c = 0; c < cars.length; c++) {
+        var car = cars[c];
+        if (Math.abs(car.speed) < 8) continue;
+        var dx = p.x - car.x, dz = p.z - car.z;
+        var d = Math.sqrt(dx * dx + dz * dz);
+        if (d < 14 && d < threatD) { threat = car; threatD = d; }
       }
       if (threat) {
-        const d = Math.sqrt(threatD) || 1;
-        p.fx = (p.x - threat.x) / d;
-        p.fy = (p.y - threat.y) / d;
-        p.state = "flee";
-        p.fleeT = 1.4;
-        continue;
-      }
-
-      if (player) {
-        const dx = p.x - player.x;
-        const dy = p.y - player.y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < 26 * 26 && d2 > 0.01) {
-          const d = Math.sqrt(d2);
-          const nx = p.x + (dx / d) * 60 * dt;
-          const ny = p.y + (dy / d) * 60 * dt;
-          if (!this.stepBlocked(nx, p.y)) {
-            p.x = nx;
-          }
-          if (!this.stepBlocked(p.x, ny)) {
-            p.y = ny;
-          }
+        p.flee = 1.2;
+        var dx2 = p.x - threat.x, dz2 = p.z - threat.z;
+        var d2 = Math.max(0.1, Math.sqrt(dx2 * dx2 + dz2 * dz2));
+        p.heading = Math.atan2(dx2 / d2, dz2 / d2);
+      } else if (p.flee > 0) {
+        p.flee -= dt;
+      } else {
+        // step aside for the player on foot
+        var pdx = p.x - player.x, pdz = p.z - player.z;
+        var pd = Math.sqrt(pdx * pdx + pdz * pdz);
+        if (pd < 3 && pd > 0.1) {
+          p.heading = Math.atan2(pdx / pd, pdz / pd);
+          p.x += Math.sin(p.heading) * 1.5 * dt;
+          p.z += Math.cos(p.heading) * 1.5 * dt;
         }
       }
-
-      const dx = p.tx - p.x;
-      const dy = p.ty - p.y;
-      if (Math.abs(dx) > 6) {
-        const step = Math.sign(dx) * p.speed * dt;
-        const nx = p.x + step;
-        if (!this.stepBlocked(nx, p.y)) {
-          p.x = nx;
-        } else {
-          this.pickTarget(p);
-        }
-      } else if (Math.abs(dy) > 6) {
-        const step = Math.sign(dy) * p.speed * dt;
-        const ny = p.y + step;
-        if (!this.stepBlocked(p.x, ny)) {
-          p.y = ny;
-        } else {
-          this.pickTarget(p);
+      var speed = p.flee > 0 ? 5.2 : p.speed;
+      if (p.flee <= 0) {
+        // wander along the road edge; turn at intersections
+        p.x += Math.sin(p.heading) * speed * dt;
+        p.z += Math.cos(p.heading) * speed * dt;
+        if (Math.abs(p.x) > half - 8 || Math.abs(p.z) > half - 8 || p.z > C.WATER_Y - 6) {
+          p.heading += Math.PI;
+          p.dir = -p.dir;
         }
       } else {
-        this.pickTarget(p);
+        p.x += Math.sin(p.heading) * speed * dt;
+        p.z += Math.cos(p.heading) * speed * dt;
       }
+      // leg swing
+      p.walkPhase += dt * speed * 3.2;
+      var swing = Math.sin(p.walkPhase) * 0.45;
+      p.mesh.userData.legs[0].rotation.x = swing;
+      p.mesh.userData.legs[1].rotation.x = -swing;
+      p.mesh.position.set(p.x, 0, p.z);
+      p.mesh.rotation.y = p.heading;
     }
-    while (this.list.length < TARGET) {
-      this.spawnOne();
-    }
-  }
-}
+  };
 
-export function drawPedestrian(ctx, p) {
-  const bob = Math.sin(p.phase) * 1.5;
-  ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
-  ctx.beginPath();
-  ctx.ellipse(p.x + 1, p.y + 4, 7, 4.5, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = p.shirt;
-  ctx.beginPath();
-  ctx.arc(p.x, p.y + bob * 0.4, 7.5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = p.skin;
-  ctx.beginPath();
-  ctx.arc(p.x, p.y - 3 + bob * 0.4, 4.5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#20242a";
-  ctx.beginPath();
-  ctx.arc(p.x, p.y - 4 + bob * 0.4, 4.5, Math.PI, Math.PI * 2);
-  ctx.fill();
-}
+  window.SH_PEDS = { PedManager: PedManager };
+})();

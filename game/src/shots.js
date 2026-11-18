@@ -1,86 +1,83 @@
-// Solmarina Heat - deterministic staged scenes for screenshots.
-// Loaded with ?shot=chase, ?shot=title, ?shot=mission or ?shot=wasted.
-// Each scene fixes the clock, the player spot, the wanted level and the
-// dialog so the same URL always renders the same picture.
+// Solmarina Heat - shots.js
+// Deterministic staged scenes for screenshots: ?shot=chase|title|mission|wasted.
+// Each scene sets the game state so Playwright captures a fixed, readable frame.
+(function () {
+  'use strict';
+  var C = window.SH_CONFIG;
 
-import { MARINA_MARKER } from "./config.js";
-import { makeVehicle } from "./vehicles.js";
+  function apply(game, shot) {
+    game.state = 'playing';
+    var H = window.SH_HUD;
+    // hide the title screen if it is showing
+    var center = document.getElementById('hud-center');
+    if (center) center.style.display = 'none';
 
-export function stageShot(state, city, name) {
-  const p = state.player;
-  state.props.cars = [];
-  state.marker = null;
-  state.dialog = null;
+    if (shot === 'title') {
+      game.state = 'title';
+      game.minutes = 10 * 60;
+      game.player.x = 0; game.player.z = -60;
+      game.player.mesh.position.set(0, 0, -60);
+      if (center) center.style.display = 'block';
+      return;
+    }
 
-  if (name === "title") {
-    state.mode = "title";
-    state.clock = 1020;
-    state.wanted = 0;
-    state.objective = "Explore Solmarina";
-    return;
+    if (shot === 'chase') {
+      // player driving a Palmetto GT down Palmetto Strip, 3 stars, police behind
+      game.minutes = 14 * 60;
+      var gt = null;
+      game.parked.forEach(function (v) {
+        if (v.spec.name === 'Palmetto GT') gt = v;
+      });
+      if (!gt) {
+        gt = window.SH_VEHICLES.makeVehicle(C.VEHICLES[3], 0, 100, Math.PI, 'player', game._scene);
+        game.parked.push(gt);
+      }
+      gt.x = 0; gt.z = 60; gt.heading = Math.PI; gt.speed = 20;
+      gt.group.position.set(0, 0, 60);
+      gt.group.rotation.y = Math.PI;
+      game.playerCar = gt;
+      gt.kind = 'player';
+      game.player.mesh.visible = false;
+      game.player.x = 0; game.player.z = 60;
+      game.police.heat = 55;
+      game.police.stars = 3;
+      game.police.spawnCar(game.player);
+      game.police.spawnCar(game.player);
+      game.player.money = 1250;
+      return;
+    }
+
+    if (shot === 'mission') {
+      // mission 2 briefing: Marisol dialog + beacon at Marina Bay
+      game.minutes = 11 * 60;
+      game.player.x = 0; game.player.z = 120;
+      game.player.mesh.position.set(0, 0, 120);
+      game.player.money = 400;
+      game.missions.idx = 1;
+      game.missions.start();
+      H.showDialog(
+        { dialog: document.getElementById('hud-dialog'), dialogName: document.getElementById('hud-dialog-name'), dialogText: document.getElementById('hud-dialog-text') },
+        'Marisol', 'A package is waiting at the marina. Pick it up, then drop it at Las Brisas.'
+      );
+      return;
+    }
+
+    if (shot === 'wasted') {
+      // night, WASTED screen
+      game.minutes = 23 * 60 + 20;
+      game.player.x = 0; game.player.z = 40;
+      game.player.mesh.position.set(0, 0, 40);
+      game.player.hp = 0;
+      game.player.dead = true;
+      game.state = 'wasted';
+      game.endTimer = 2;
+      H.showEnd(
+        { end: document.getElementById('hud-end'), endTitle: document.getElementById('hud-end-title'), endText: document.getElementById('hud-end-text') },
+        'WASTED', 'Dario is down. You lost $100.'
+      );
+      return;
+    }
   }
 
-  if (name === "chase") {
-    state.mode = "playing";
-    state.clock = 1020;
-    state.wanted = 3;
-    state.money = 3420;
-    state.objective = "Lose the heat";
-    p.x = 1250;
-    p.y = 415;
-    p.face = 0;
-    p.health = 68;
-    const driven = makeVehicle("sports", 1250, 415, 0, "driven");
-    driven.speed = 300;
-    driven.vx = 300;
-    state.driving = driven;
-    const cop1 = makeVehicle("sedan", 1060, 415, 0, "traffic");
-    cop1.police = true;
-    cop1.speed = 210;
-    const cop2 = makeVehicle("sedan", 880, 415, 0, "traffic");
-    cop2.police = true;
-    cop2.speed = 210;
-    const taxi = makeVehicle("taxi", 1800, 415, 0, "traffic");
-    taxi.speed = 110;
-    const van = makeVehicle("van", 1250, 611, Math.PI / 2, "traffic");
-    van.speed = 95;
-    const pickup = makeVehicle("pickup", 1430, 219, Math.PI, "traffic");
-    pickup.speed = 100;
-    state.props.cars = [driven, cop1, cop2, taxi, van, pickup];
-    return;
-  }
-
-  if (name === "mission") {
-    state.mode = "playing";
-    state.clock = 600;
-    state.wanted = 0;
-    state.money = 1250;
-    state.objective = "Meet Marisol at the marina";
-    p.x = 620;
-    p.y = 380;
-    p.face = -Math.PI / 2;
-    p.health = 100;
-    state.marker = { x: MARINA_MARKER.x, y: MARINA_MARKER.y };
-    state.dialog = {
-      speaker: "Marisol",
-      text: "Dario, the drop is at the old cannery. Do not keep me waiting, and do not bring the heat with you.",
-    };
-    return;
-  }
-
-  if (name === "wasted") {
-    state.mode = "wasted";
-    state.clock = 780;
-    state.wanted = 2;
-    state.money = 860;
-    state.objective = "Lose the heat";
-    p.x = 900;
-    p.y = 600;
-    p.face = Math.PI / 2;
-    p.health = 0;
-    return;
-  }
-
-  state.mode = "title";
-  state.clock = 1020;
-}
+  window.SHOTS = { apply: apply };
+})();

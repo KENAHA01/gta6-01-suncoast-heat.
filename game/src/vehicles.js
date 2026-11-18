@@ -1,309 +1,134 @@
-// Solmarina Heat - vehicles and driving physics.
-// Five original vehicle types with distinct speed, grip and shape.
-// Arcade top-down model: velocity vector, grip kills lateral slide,
-// hard steering at speed keeps a little drift.
+// Solmarina Heat - vehicles.js
+// Box-built 3D cars: 5 types, arcade driving physics, enter/exit, stealing.
+(function () {
+  'use strict';
+  var C = window.SH_CONFIG;
 
-import { SEED } from "./config.js";
-import { makeRng } from "./random.js";
+  var matCache = {};
+  function mat(color) {
+    if (!matCache[color]) matCache[color] = new THREE.MeshLambertMaterial({ color: color });
+    return matCache[color];
+  }
+  var glassMat = new THREE.MeshLambertMaterial({ color: 0x182838 });
+  var darkMat = new THREE.MeshLambertMaterial({ color: 0x181818 });
+  var tireMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
 
-export const VEHICLE_TYPES = [
-  {
-    id: "sedan",
-    name: "Solmarina Sedan",
-    top: 300,
-    accel: 220,
-    brake: 420,
-    turn: 2.6,
-    grip: 7,
-    len: 48,
-    wid: 26,
-    colors: ["#c0392b", "#2e86ab", "#e8e8e8", "#5d6b52"],
-  },
-  {
-    id: "taxi",
-    name: "Bay Cab",
-    top: 290,
-    accel: 235,
-    brake: 420,
-    turn: 2.7,
-    grip: 7,
-    len: 48,
-    wid: 26,
-    colors: ["#f2c200"],
-    taxi: true,
-  },
-  {
-    id: "pickup",
-    name: "Cannery Pickup",
-    top: 260,
-    accel: 180,
-    brake: 380,
-    turn: 2.2,
-    grip: 7,
-    len: 52,
-    wid: 26,
-    colors: ["#7a3b2e", "#4a7c59", "#2e5f8a"],
-  },
-  {
-    id: "sports",
-    name: "Palmetto GT",
-    top: 420,
-    accel: 320,
-    brake: 480,
-    turn: 3.0,
-    grip: 6,
-    len: 46,
-    wid: 24,
-    colors: ["#e4572e", "#d62828", "#ffd640"],
-  },
-  {
-    id: "van",
-    name: "Brisas Van",
-    top: 230,
-    accel: 150,
-    brake: 340,
-    turn: 1.9,
-    grip: 7,
-    len: 56,
-    wid: 28,
-    colors: ["#e8e8e8", "#8a7f72", "#3c6e8f"],
-  },
-];
+  // Build a car mesh group from a vehicle type spec. Returns {group, len, wid}.
+  function buildCarMesh(spec) {
+    var g = new THREE.Group();
+    var L = spec.len, W = spec.wid;
+    var body = new THREE.Mesh(new THREE.BoxGeometry(W, 0.75, L), mat(spec.color));
+    body.position.y = 0.55;
+    body.castShadow = true;
+    g.add(body);
+    var cabin = new THREE.Mesh(new THREE.BoxGeometry(W * 0.82, 0.65, L * 0.45), glassMat);
+    cabin.position.set(0, 1.2, -L * 0.06);
+    cabin.castShadow = true;
+    g.add(cabin);
+    // hood + trunk hints
+    var hood = new THREE.Mesh(new THREE.BoxGeometry(W * 0.9, 0.18, L * 0.2), mat(spec.color));
+    hood.position.set(0, 0.98, L * 0.36);
+    g.add(hood);
+    // headlights / taillights
+    var hl = new THREE.MeshLambertMaterial({ color: 0xfff2b0, emissive: 0x554400 });
+    [[-W / 2 + 0.25, L / 2], [W / 2 - 0.25, L / 2]].forEach(function (p) {
+      var l = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.08), hl);
+      l.position.set(p[0], 0.62, p[1]);
+      g.add(l);
+    });
+    var tl = new THREE.MeshLambertMaterial({ color: 0xaa2222, emissive: 0x440000 });
+    [[-W / 2 + 0.25, -L / 2], [W / 2 - 0.25, -L / 2]].forEach(function (p) {
+      var l = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.08), tl);
+      l.position.set(p[0], 0.62, p[1]);
+      g.add(l);
+    });
+    // wheels
+    var wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.3, 10);
+    [[-W / 2 - 0.05, L * 0.32], [W / 2 + 0.05, L * 0.32], [-W / 2 - 0.05, -L * 0.32], [W / 2 + 0.05, -L * 0.32]].forEach(function (p) {
+      var w = new THREE.Mesh(wheelGeo, tireMat);
+      w.rotation.z = Math.PI / 2;
+      w.position.set(p[0], 0.42, p[1]);
+      g.add(w);
+    });
+    // taxi sign for the cab
+    if (spec.name === 'Bay Cab') {
+      var sign = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.3, 0.4), new THREE.MeshLambertMaterial({ color: 0xffeebb, emissive: 0x665500 }));
+      sign.position.set(0, 1.7, -L * 0.06);
+      g.add(sign);
+    }
+    return g;
+  }
 
-const rng = makeRng(SEED + 41);
+  // A vehicle instance: {spec, group, x, z, heading, speed, kind: 'player'|'traffic'|'parked'}
+  function makeVehicle(spec, x, z, heading, kind, scene) {
+    var v = {
+      spec: spec, x: x, z: z, heading: heading || 0, speed: 0,
+      steer: 0, kind: kind || 'parked', group: buildCarMesh(spec)
+    };
+    v.group.position.set(x, 0, z);
+    v.group.rotation.y = v.heading;
+    scene.add(v.group);
+    return v;
+  }
 
-export function typeById(id) {
-  for (const t of VEHICLE_TYPES) {
-    if (t.id === id) {
-      return t;
+  // Arcade driving: forward = W, brake/reverse = S, steer = A/D.
+  // dt seconds, input {fwd, back, left, right}. Returns nothing, mutates v.
+  function drive(v, input, dt) {
+    var s = v.spec;
+    if (input.fwd) v.speed += s.accel * dt;
+    else if (input.back) v.speed -= s.brake * 0.7 * dt;
+    else {
+      // drag
+      v.speed -= v.speed * 1.4 * dt;
+      if (Math.abs(v.speed) < 0.3) v.speed = 0;
+    }
+    if (input.back && v.speed > 0.5) v.speed -= s.brake * dt; // brake while moving
+    if (v.speed > s.top) v.speed = s.top;
+    if (v.speed < -s.top * 0.35) v.speed = -s.top * 0.35;
+    // steering scales with speed, grip kills lateral slide
+    var steerTarget = 0;
+    if (input.left) steerTarget = 1;
+    if (input.right) steerTarget = -1;
+    v.steer += (steerTarget - v.steer) * Math.min(1, dt * 8);
+    var turnRate = s.turn * v.steer * Math.min(1, Math.abs(v.speed) / 8);
+    if (v.speed < 0) turnRate = -turnRate;
+    v.heading += turnRate * dt * (v.speed >= 0 ? 1 : -1);
+    // drift: hard steering at speed keeps a little slide
+    var drift = 0;
+    if (Math.abs(v.steer) > 0.85 && Math.abs(v.speed) > s.top * 0.55) drift = v.steer * 0.12;
+    var hx = Math.sin(v.heading), hz = Math.cos(v.heading);
+    var px = -hz, pz = hx; // perpendicular
+    v.x += (hx * v.speed + px * drift * Math.abs(v.speed)) * dt;
+    v.z += (hz * v.speed + pz * drift * Math.abs(v.speed)) * dt;
+    v.group.position.set(v.x, 0, v.z);
+    v.group.rotation.y = v.heading;
+  }
+
+  // Simple car-car blocking: push two overlapping cars apart.
+  function separateCars(cars) {
+    for (var i = 0; i < cars.length; i++) {
+      for (var j = i + 1; j < cars.length; j++) {
+        var a = cars[i], b = cars[j];
+        var dx = b.x - a.x, dz = b.z - a.z;
+        var d2 = dx * dx + dz * dz;
+        var min = 3.4;
+        if (d2 < min * min && d2 > 0.001) {
+          var d = Math.sqrt(d2);
+          var push = (min - d) / 2;
+          var nx = dx / d, nz = dz / d;
+          a.x -= nx * push; a.z -= nz * push;
+          b.x += nx * push; b.z += nz * push;
+          if (a.kind !== 'traffic') a.speed *= 0.6;
+          if (b.kind !== 'traffic') b.speed *= 0.6;
+          a.group.position.set(a.x, 0, a.z);
+          b.group.position.set(b.x, 0, b.z);
+        }
+      }
     }
   }
-  return VEHICLE_TYPES[0];
-}
 
-export function makeVehicle(typeId, x, y, angle, kind) {
-  const t = typeById(typeId);
-  return {
-    type: t.id,
-    name: t.name,
-    x,
-    y,
-    angle: angle || 0,
-    speed: 0,
-    vx: 0,
-    vy: 0,
-    top: t.top,
-    accel: t.accel,
-    brake: t.brake,
-    turn: t.turn,
-    grip: t.grip,
-    len: t.len,
-    wid: t.wid,
-    color: rng.pick(t.colors),
-    taxi: !!t.taxi,
-    police: false,
-    kind: kind || "parked",
+  window.SH_VEHICLES = {
+    buildCarMesh: buildCarMesh, makeVehicle: makeVehicle,
+    drive: drive, separateCars: separateCars
   };
-}
-
-export function clamp(v, lo, hi) {
-  return Math.min(hi, Math.max(lo, v));
-}
-
-function carCorners(v, px, py) {
-  const hl = v.len / 2 - 2;
-  const hw = v.wid / 2 - 2;
-  const c = Math.cos(v.angle);
-  const s = Math.sin(v.angle);
-  const pts = [];
-  for (const sx of [-1, 1]) {
-    for (const sy of [-1, 1]) {
-      pts.push([px + c * sx * hl - s * sy * hw, py + s * sx * hl + c * sy * hw]);
-    }
-  }
-  pts.push([px + c * hl, py + s * hl]);
-  pts.push([px - c * hl, py - s * hl]);
-  pts.push([px, py]);
-  return pts;
-}
-
-function carBlocked(v, px, py, city) {
-  const pts = carCorners(v, px, py);
-  for (const p of pts) {
-    if (city.isBlocked(p[0], p[1])) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function overlapsOther(v, px, py, others) {
-  for (const o of others) {
-    if (o === v) {
-      continue;
-    }
-    const dx = px - o.x;
-    const dy = py - o.y;
-    const rr = (v.len + o.len) / 2 - 6;
-    if (dx * dx + dy * dy < rr * rr) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// Drive one step. ctl: {throttle, brake, steer} with steer in -1..1.
-// Returns the forward speed after the step.
-export function updateVehicle(v, ctl, dt, city, others) {
-  let fx = Math.cos(v.angle);
-  let fy = Math.sin(v.angle);
-  let rx = -fy;
-  let ry = fx;
-  let fwd = v.vx * fx + v.vy * fy;
-  let lat = v.vx * rx + v.vy * ry;
-
-  if (ctl.throttle) {
-    fwd += v.accel * dt;
-  }
-  if (ctl.brake) {
-    if (fwd > 1) {
-      fwd -= v.brake * dt;
-    } else {
-      fwd -= v.accel * 0.55 * dt;
-    }
-  }
-  fwd -= fwd * 0.35 * dt;
-  if (Math.abs(fwd) < 2 && !ctl.throttle && !ctl.brake) {
-    fwd = 0;
-  }
-  fwd = clamp(fwd, -v.top * 0.38, v.top);
-
-  const spdF = 1 / (1 + Math.abs(fwd) / 260);
-  const steer = (ctl.steer || 0) * v.turn * spdF;
-  v.angle += steer * dt * (fwd >= 0 ? 1 : -1);
-
-  const grip = Math.abs(steer) > 1.6 && Math.abs(fwd) > 180 ? v.grip * 0.45 : v.grip;
-  lat *= Math.exp(-grip * dt);
-
-  fx = Math.cos(v.angle);
-  fy = Math.sin(v.angle);
-  rx = -fy;
-  ry = fx;
-  v.vx = fx * fwd + rx * lat;
-  v.vy = fy * fwd + ry * lat;
-  v.speed = fwd;
-
-  const nx = v.x + v.vx * dt;
-  if (!carBlocked(v, nx, v.y, city) && !overlapsOther(v, nx, v.y, others)) {
-    v.x = nx;
-  } else {
-    v.vx *= -0.2;
-    v.speed *= 0.4;
-  }
-  const ny = v.y + v.vy * dt;
-  if (!carBlocked(v, v.x, ny, city) && !overlapsOther(v, v.x, ny, others)) {
-    v.y = ny;
-  } else {
-    v.vy *= -0.2;
-    v.speed *= 0.4;
-  }
-  return v.speed;
-}
-
-// Push overlapping cars apart so traffic never stacks on one spot.
-export function separateCars(cars) {
-  for (let i = 0; i < cars.length; i += 1) {
-    for (let j = i + 1; j < cars.length; j += 1) {
-      const a = cars[i];
-      const b = cars[j];
-      if (a.kind === "driven" || b.kind === "driven") {
-        continue;
-      }
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const rr = (a.len + b.len) / 2 - 8;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < rr * rr && d2 > 0.01) {
-        const d = Math.sqrt(d2);
-        const push = (rr - d) / 2;
-        const nx = dx / d;
-        const ny = dy / d;
-        a.x -= nx * push;
-        a.y -= ny * push;
-        b.x += nx * push;
-        b.y += ny * push;
-      }
-    }
-  }
-}
-
-export function nearestVehicle(x, y, cars, maxDist) {
-  let best = null;
-  let bestD = maxDist * maxDist;
-  for (const c of cars) {
-    const dx = c.x - x;
-    const dy = c.y - y;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < bestD) {
-      bestD = d2;
-      best = c;
-    }
-  }
-  return best;
-}
-
-export function drawVehicle(ctx, car) {
-  const t = typeById(car.type || "sedan");
-  const len = car.len || t.len;
-  const wid = car.wid || t.wid;
-  ctx.save();
-  ctx.translate(car.x, car.y);
-  ctx.rotate(car.angle || 0);
-  ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
-  ctx.fillRect(-len / 2 + 2, -wid / 2 + 2, len, wid);
-  ctx.fillStyle = car.police ? "#1d3557" : car.color || t.colors[0];
-  ctx.fillRect(-len / 2, -wid / 2, len, wid);
-  if (car.taxi) {
-    ctx.fillStyle = "#111";
-    for (let i = 0; i < 4; i += 1) {
-      ctx.fillRect(-len / 2 + 4 + i * 11, -wid / 2 + 2, 6, 4);
-      ctx.fillRect(-len / 2 + 4 + i * 11, wid / 2 - 6, 6, 4);
-    }
-    ctx.fillStyle = "#ffd640";
-    ctx.fillRect(-4, -wid / 2, 8, 4);
-  }
-  if (car.type === "pickup") {
-    ctx.fillStyle = "#bfe3ee";
-    ctx.fillRect(-2, -wid / 2 + 3, 12, wid - 6);
-    ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-    ctx.fillRect(-len / 2 + 3, -wid / 2 + 3, len / 2 - 8, wid - 6);
-  } else if (car.type === "van") {
-    ctx.fillStyle = "#bfe3ee";
-    ctx.fillRect(len / 2 - 12, -wid / 2 + 3, 7, wid - 6);
-    ctx.fillStyle = "rgba(255, 255, 255, 0.22)";
-    ctx.fillRect(-len / 2 + 4, -wid / 2 + 3, len - 20, 4);
-  } else {
-    ctx.fillStyle = "#bfe3ee";
-    ctx.fillRect(-8, -wid / 2 + 3, 14, wid - 6);
-    ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
-    ctx.fillRect(len / 2 - 10, -wid / 2 + 3, 6, wid - 6);
-  }
-  if (car.type === "sports") {
-    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-    ctx.fillRect(-len / 2 - 3, -wid / 2 + 1, 4, wid - 2);
-  }
-  if (car.police) {
-    ctx.fillStyle = "#d62828";
-    ctx.fillRect(-2, -wid / 2, 8, 5);
-    ctx.fillStyle = "#2a6fdb";
-    ctx.fillRect(-2, wid / 2 - 5, 8, 5);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(8, -wid / 2 + 3, 6, wid - 6);
-  }
-  ctx.fillStyle = "#141414";
-  ctx.fillRect(-len / 2 + 4, -wid / 2 - 3, 10, 4);
-  ctx.fillRect(-len / 2 + 4, wid / 2 - 1, 10, 4);
-  ctx.fillRect(len / 2 - 14, -wid / 2 - 3, 10, 4);
-  ctx.fillRect(len / 2 - 14, wid / 2 - 1, 10, 4);
-  ctx.restore();
-}
+})();

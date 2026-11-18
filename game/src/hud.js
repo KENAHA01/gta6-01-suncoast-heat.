@@ -1,241 +1,161 @@
-// Solmarina Heat - HUD: health, money, wanted stars, clock, objective,
-// live minimap, dialog box, title screen and end screens.
+// Solmarina Heat - hud.js
+// DOM HUD: health, money, weapon/ammo, wanted stars, objective, clock, dialog.
+// Minimap is a small 2D canvas drawn top-down each frame.
+(function () {
+  'use strict';
+  var C = window.SH_CONFIG;
 
-import {
-  VIEW_W,
-  VIEW_H,
-  WORLD_W,
-  WORLD_H,
-  CITY_H,
-  BAY_H,
-  BEACH_H,
-  DISTRICTS,
-  GAME_TITLE,
-  blockX,
-  blockY,
-} from "./config.js";
-
-export function drawHud(ctx, state, city) {
-  ctx.save();
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-
-  ctx.fillStyle = "rgba(10, 12, 14, 0.55)";
-  ctx.fillRect(16, 14, 230, 64);
-
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 13px Arial, sans-serif";
-  ctx.fillText("HEALTH", 28, 34);
-  ctx.fillStyle = "#222";
-  ctx.fillRect(96, 22, 132, 14);
-  const hp = Math.max(0, state.player.health) / 100;
-  ctx.fillStyle = hp > 0.5 ? "#58c96b" : hp > 0.25 ? "#f2b705" : "#e5484d";
-  ctx.fillRect(96, 22, 132 * hp, 14);
-
-  ctx.fillStyle = "#7ee787";
-  ctx.font = "bold 16px Arial, sans-serif";
-  ctx.fillText("$ " + state.money.toLocaleString("en-US"), 28, 62);
-  ctx.fillStyle = "#cfd6dd";
-  ctx.font = "13px Arial, sans-serif";
-  if (state.driving) {
-    const kmh = Math.round(Math.abs(state.driving.speed) * 0.36);
-    ctx.fillText(state.driving.name + "  •  " + kmh + " km/h", 150, 62);
-  } else {
-    ctx.fillText("Fists", 150, 62);
+  function buildHUD() {
+    var root = document.getElementById('hud');
+    root.innerHTML =
+      '<div id="hud-top-right">' +
+        '<div id="hud-money">$0</div>' +
+        '<div id="hud-clock">10:00</div>' +
+      '</div>' +
+      '<div id="hud-stars"></div>' +
+      '<div id="hud-objective"></div>' +
+      '<div id="hud-bottom-left">' +
+        '<div id="hud-health"><div id="hud-health-fill"></div></div>' +
+        '<div id="hud-weapon">Pistol | 12 / 48</div>' +
+        '<div id="hud-speed"></div>' +
+      '</div>' +
+      '<div id="hud-prompt"></div>' +
+      '<div id="hud-dialog"><div id="hud-dialog-name"></div><div id="hud-dialog-text"></div></div>' +
+      '<div id="hud-center"><div id="hud-title">SOLMARINA HEAT</div>' +
+        '<div id="hud-subtitle">Press ENTER to play</div>' +
+        '<div id="hud-controls">WASD move &nbsp; Mouse look &nbsp; Click shoot &nbsp; E enter/exit car &nbsp; R reload &nbsp; 1-4 weapons &nbsp; P pause</div>' +
+      '</div>' +
+      '<div id="hud-end" style="display:none"><div id="hud-end-title"></div><div id="hud-end-text"></div><div id="hud-end-hint">Press R to restart</div></div>' +
+      '<canvas id="minimap" width="180" height="180"></canvas>';
+    return {
+      root: root,
+      money: document.getElementById('hud-money'),
+      clock: document.getElementById('hud-clock'),
+      stars: document.getElementById('hud-stars'),
+      objective: document.getElementById('hud-objective'),
+      healthFill: document.getElementById('hud-health-fill'),
+      weapon: document.getElementById('hud-weapon'),
+      speed: document.getElementById('hud-speed'),
+      prompt: document.getElementById('hud-prompt'),
+      dialog: document.getElementById('hud-dialog'),
+      dialogName: document.getElementById('hud-dialog-name'),
+      dialogText: document.getElementById('hud-dialog-text'),
+      center: document.getElementById('hud-center'),
+      end: document.getElementById('hud-end'),
+      endTitle: document.getElementById('hud-end-title'),
+      endText: document.getElementById('hud-end-text'),
+      minimap: document.getElementById('minimap')
+    };
   }
 
-  ctx.fillStyle = "rgba(10, 12, 14, 0.55)";
-  ctx.fillRect(VIEW_W - 246, 14, 230, 64);
-  ctx.font = "26px Arial, sans-serif";
-  ctx.textAlign = "center";
-  let stars = "";
-  for (let i = 0; i < 5; i += 1) {
-    stars += i < state.wanted ? "★" : "☆";
-  }
-  ctx.fillStyle = state.wanted > 0 ? "#ffd640" : "#8a939c";
-  ctx.fillText(stars, VIEW_W - 131, 44);
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 16px Arial, sans-serif";
-  ctx.fillText(city.clockText(state.clock), VIEW_W - 131, 68);
-  ctx.textAlign = "left";
-
-  if (state.objective) {
-    ctx.font = "bold 15px Arial, sans-serif";
-    const w = ctx.measureText(state.objective).width + 32;
-    ctx.fillStyle = "rgba(10, 12, 14, 0.6)";
-    ctx.fillRect(16, VIEW_H - 44, w, 30);
-    ctx.fillStyle = "#ffd640";
-    ctx.fillText("◆ " + state.objective, 32, VIEW_H - 23);
+  function fmtClock(minutes) {
+    var h = Math.floor(minutes / 60) % 24;
+    var m = Math.floor(minutes % 60);
+    return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
   }
 
-  if (state.mode === "playing") {
-    const prompt = state.driving ? "E - Exit car" : state.nearCar ? "E - Steal car" : null;
-    if (prompt) {
-      ctx.font = "bold 15px Arial, sans-serif";
-      const w = ctx.measureText(prompt).width + 28;
-      ctx.fillStyle = "rgba(10, 12, 14, 0.65)";
-      ctx.fillRect((VIEW_W - w) / 2, VIEW_H - 84, w, 30);
-      ctx.fillStyle = "#ffffff";
-      ctx.textAlign = "center";
-      ctx.fillText(prompt, VIEW_W / 2, VIEW_H - 63);
-      ctx.textAlign = "left";
-    }
-  }
-
-  drawMinimap(ctx, state, city);
-
-  if (state.dialog) {
-    const boxH = 92;
-    const boxY = VIEW_H - 150;
-    const boxW = 640;
-    ctx.fillStyle = "rgba(8, 10, 12, 0.82)";
-    ctx.fillRect(180, boxY, boxW, boxH);
-    ctx.strokeStyle = "#ffd640";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(180, boxY, boxW, boxH);
-    ctx.fillStyle = "#ffd640";
-    ctx.font = "bold 15px Arial, sans-serif";
-    ctx.fillText(state.dialog.speaker, 200, boxY + 26);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "16px Arial, sans-serif";
-    wrapText(ctx, state.dialog.text, 200, boxY + 52, boxW - 40, 22);
-  }
-  ctx.restore();
-}
-
-function wrapText(ctx, text, x, y, maxW, lineH) {
-  const words = text.split(" ");
-  let line = "";
-  let yy = y;
-  for (const word of words) {
-    const test = line ? line + " " + word : word;
-    if (ctx.measureText(test).width > maxW && line) {
-      ctx.fillText(line, x, yy);
-      line = word;
-      yy += lineH;
+  function updateHUD(el, game) {
+    el.money.textContent = '$' + Math.floor(game.player.money);
+    el.clock.textContent = fmtClock(game.minutes);
+    var stars = '';
+    for (var i = 0; i < C.WANTED_MAX; i++) stars += i < game.police.stars ? '★' : '☆';
+    el.stars.textContent = stars;
+    el.stars.style.color = game.police.stars > 0 ? '#ffd23e' : '#888888';
+    var w = game.combat.weapon();
+    el.weapon.textContent = w.name + ' | ' + game.combat.ammo[game.combat.weaponIdx] + ' / ' + game.combat.reserve[game.combat.weaponIdx] +
+      (game.combat.reloading > 0 ? '  (reloading...)' : '');
+    var hp = Math.max(0, game.player.hp);
+    el.healthFill.style.width = hp + '%';
+    el.healthFill.style.background = hp > 50 ? '#4ac97a' : (hp > 25 ? '#e8b400' : '#c92a2a');
+    if (game.playerCar) {
+      el.speed.textContent = Math.abs(Math.round(game.playerCar.speed * 3.6)) + ' km/h - ' + game.playerCar.spec.name;
     } else {
-      line = test;
+      el.speed.textContent = '';
     }
-  }
-  if (line) {
-    ctx.fillText(line, x, yy);
-  }
-}
-
-function drawMinimap(ctx, state, city) {
-  const scale = 0.08;
-  const mw = WORLD_W * scale;
-  const mh = WORLD_H * scale;
-  const ox = VIEW_W - mw - 16;
-  const oy = VIEW_H - mh - 16;
-
-  ctx.fillStyle = "rgba(8, 10, 12, 0.75)";
-  ctx.fillRect(ox - 5, oy - 5, mw + 10, mh + 10);
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(ox, oy, mw, mh);
-  ctx.clip();
-
-  for (const d of DISTRICTS) {
-    const x0 = blockX(d.col0) - 46;
-    const y0 = blockY(d.row0) - 46;
-    const x1 = blockX(d.col1) + 150 + 46;
-    const y1 = blockY(d.row1) + 150 + 46;
-    ctx.fillStyle = d.ground;
-    ctx.fillRect(ox + x0 * scale, oy + y0 * scale, (x1 - x0) * scale, (y1 - y0) * scale);
-  }
-
-  ctx.fillStyle = "#2f7fae";
-  ctx.fillRect(ox, oy + CITY_H * scale, mw, BAY_H * scale);
-  ctx.fillStyle = "#ecd9a0";
-  ctx.fillRect(ox, oy + (CITY_H + BAY_H) * scale, mw, BEACH_H * scale);
-
-  ctx.fillStyle = "rgba(20, 20, 20, 0.55)";
-  for (const b of city.buildings) {
-    ctx.fillRect(ox + b.x * scale, oy + b.y * scale, Math.max(1, b.w * scale), Math.max(1, b.h * scale));
-  }
-
-  for (const car of state.props.cars) {
-    if (car.kind === "driven") {
-      ctx.fillStyle = "#ffd640";
-    } else if (car.kind === "traffic") {
-      ctx.fillStyle = "#7ec8f7";
+    var m = game.missions.current();
+    if (game.missions.state === 'active' && m) {
+      var step = game.missions.currentStep();
+      el.objective.textContent = m.name + ': ' + (step ? step.text : '');
+    } else if (game.missions.allDone()) {
+      el.objective.textContent = 'All missions complete. Solmarina is yours.';
     } else {
-      ctx.fillStyle = "#9aa5ad";
+      el.objective.textContent = 'Press M to start a mission';
     }
-    ctx.fillRect(ox + car.x * scale - 1.5, oy + car.y * scale - 1.5, 3, 3);
+    el.prompt.textContent = game.prompt || '';
   }
 
-  if (state.marker) {
-    ctx.fillStyle = "#ffd640";
-    ctx.beginPath();
-    ctx.arc(ox + state.marker.x * scale, oy + state.marker.y * scale, 4, 0, Math.PI * 2);
-    ctx.fill();
+  function showDialog(el, name, text, ms) {
+    el.dialogName.textContent = name;
+    el.dialogText.textContent = text;
+    el.dialog.style.display = 'block';
+    if (showDialog._t) clearTimeout(showDialog._t);
+    if (ms) showDialog._t = setTimeout(function () { el.dialog.style.display = 'none'; }, ms);
+  }
+  function hideDialog(el) { el.dialog.style.display = 'none'; }
+
+  function showCenter(el, title, subtitle) {
+    el.center.style.display = 'block';
+    document.getElementById('hud-title').textContent = title;
+    document.getElementById('hud-subtitle').textContent = subtitle || '';
+  }
+  function hideCenter(el) { el.center.style.display = 'none'; }
+
+  function showEnd(el, title, text) {
+    el.end.style.display = 'block';
+    el.endTitle.textContent = title;
+    el.endText.textContent = text;
+  }
+  function hideEnd(el) { el.end.style.display = 'none'; }
+
+  // Minimap: top-down 2D canvas. Roads, buildings, water, player, cars, police, beacon.
+  function drawMinimap(el, game) {
+    var ctx = el.minimap.getContext('2d');
+    var S = 180, half = C.CITY_SIZE / 2;
+    function px(x) { return (x + half) / C.CITY_SIZE * S; }
+    function pz(z) { return (z + half) / C.CITY_SIZE * S; }
+    ctx.fillStyle = '#20242a';
+    ctx.fillRect(0, 0, S, S);
+    // water
+    ctx.fillStyle = '#1a5a7a';
+    ctx.fillRect(0, pz(C.WATER_Y), S, S - pz(C.WATER_Y));
+    // roads
+    ctx.fillStyle = '#555550';
+    game.city.roadsX.forEach(function (z) { ctx.fillRect(0, pz(z) - 2, S, 4); });
+    game.city.roadsZ.forEach(function (x) { ctx.fillRect(px(x) - 2, 0, 4, S); });
+    // buildings
+    ctx.fillStyle = '#888880';
+    game.city.buildings.forEach(function (b) {
+      ctx.fillRect(px(b.minX), pz(b.minZ), px(b.maxX) - px(b.minX), px(b.maxZ) - pz(b.minZ));
+    });
+    // mission beacon
+    var step = game.missions.currentStep();
+    if (game.missions.state === 'active' && step && step.x !== undefined) {
+      ctx.fillStyle = '#ffd23e';
+      ctx.beginPath(); ctx.arc(px(step.x), pz(step.z), 5, 0, Math.PI * 2); ctx.fill();
+    }
+    // traffic + player car
+    ctx.fillStyle = '#e8e8e8';
+    game.traffic.cars.forEach(function (c) { ctx.fillRect(px(c.x) - 2, pz(c.z) - 2, 4, 4); });
+    // police
+    ctx.fillStyle = '#4488ff';
+    game.police.cars.forEach(function (c) { ctx.fillRect(px(c.x) - 2, pz(c.z) - 2, 4, 4); });
+    // enemies
+    ctx.fillStyle = '#ff4444';
+    game.combat.enemies.forEach(function (e) { ctx.fillRect(px(e.x) - 2, pz(e.z) - 2, 4, 4); });
+    // player
+    var pxp = game.playerCar ? game.playerCar.x : game.player.x;
+    var pzp = game.playerCar ? game.playerCar.z : game.player.z;
+    ctx.fillStyle = '#4ac97a';
+    ctx.beginPath(); ctx.arc(px(pxp), pz(pzp), 4, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
   }
 
-  const px = ox + state.player.x * scale;
-  const py = oy + state.player.y * scale;
-  ctx.fillStyle = "#ffffff";
-  ctx.beginPath();
-  ctx.arc(px, py, 4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = "#111";
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  ctx.restore();
-
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(ox - 5, oy - 5, mw + 10, mh + 10);
-}
-
-export function drawTitle(ctx, timeMs) {
-  ctx.save();
-  ctx.fillStyle = "rgba(6, 10, 18, 0.55)";
-  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-  ctx.textAlign = "center";
-  const bob = Math.sin(timeMs / 600) * 6;
-  ctx.fillStyle = "#ffd640";
-  ctx.font = "bold 84px Arial, sans-serif";
-  ctx.fillText("SOLMARINA", VIEW_W / 2, 250 + bob);
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 84px Arial, sans-serif";
-  ctx.fillText("HEAT", VIEW_W / 2, 340 + bob);
-  ctx.fillStyle = "#ffb3a0";
-  ctx.font = "20px Arial, sans-serif";
-  ctx.fillText("A sun-soaked open-world crime story", VIEW_W / 2, 392);
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 24px Arial, sans-serif";
-  const blink = Math.floor(timeMs / 500) % 2 === 0;
-  if (blink) {
-    ctx.fillText("Press ENTER or click to start", VIEW_W / 2, 480);
-  }
-  ctx.font = "16px Arial, sans-serif";
-  ctx.fillStyle = "#cfd6dd";
-  ctx.fillText("WASD / arrows to walk  •  E to steal a car  •  M to mute", VIEW_W / 2, 530);
-  ctx.fillText("Dario Cruz  •  Marisol  •  Marina Bay  •  Palmetto Strip", VIEW_W / 2, 560);
-  ctx.restore();
-}
-
-export function drawEnd(ctx, kind) {
-  ctx.save();
-  ctx.fillStyle = kind === "wasted" ? "rgba(90, 10, 10, 0.55)" : "rgba(10, 20, 60, 0.55)";
-  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 92px Arial, sans-serif";
-  ctx.fillText(kind === "wasted" ? "WASTED" : "BUSTED", VIEW_W / 2, 330);
-  ctx.font = "20px Arial, sans-serif";
-  ctx.fillStyle = "#e8e8e8";
-  ctx.fillText(
-    kind === "wasted"
-      ? "Dario went down. The city keeps moving."
-      : "The Solmarina PD caught up with Dario.",
-    VIEW_W / 2,
-    390,
-  );
-  ctx.font = "bold 22px Arial, sans-serif";
-  ctx.fillStyle = "#ffd640";
-  ctx.fillText("Press R to try again", VIEW_W / 2, 460);
-  ctx.restore();
-}
+  window.SH_HUD = {
+    buildHUD: buildHUD, updateHUD: updateHUD,
+    showDialog: showDialog, hideDialog: hideDialog,
+    showCenter: showCenter, hideCenter: hideCenter,
+    showEnd: showEnd, hideEnd: hideEnd,
+    drawMinimap: drawMinimap, fmtClock: fmtClock
+  };
+})();

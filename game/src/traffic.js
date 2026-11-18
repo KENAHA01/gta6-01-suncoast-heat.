@@ -1,202 +1,111 @@
-// Solmarina Heat - AI traffic.
-// Cars drive the street grid on right-hand lanes, pick a turn at every
-// intersection, slow for the car ahead and for the player, and respawn so
-// the streets stay alive. Positions come from intersection legs, so a car
-// can never drift off the road.
+// Solmarina Heat - traffic.js
+// AI traffic: cars drive the street grid on right-hand lanes, turn at
+// intersections, slow/stop for the car ahead, the player and parked cars.
+(function () {
+  'use strict';
+  var C = window.SH_CONFIG;
+  var R = window.SH_RANDOM;
+  var V = window.SH_VEHICLES;
 
-import { SEED, CELL, ROAD, COLS, ROWS } from "./config.js";
-import { makeRng } from "./random.js";
-import { makeVehicle, VEHICLE_TYPES } from "./vehicles.js";
-
-const LANE = 11;
-const TARGET = 10;
-
-function interX(i) {
-  return i * CELL + ROAD / 2;
-}
-
-function interY(j) {
-  return j * CELL + ROAD / 2;
-}
-
-function neighbors(i, j) {
-  const out = [];
-  if (i > 0) {
-    out.push([i - 1, j]);
-  }
-  if (i < COLS) {
-    out.push([i + 1, j]);
-  }
-  if (j > 0) {
-    out.push([i, j - 1]);
-  }
-  if (j < ROWS) {
-    out.push([i, j + 1]);
-  }
-  return out;
-}
-
-export class TrafficManager {
-  constructor(city, cars) {
+  function TrafficManager(city, scene) {
     this.city = city;
-    this.cars = cars;
-    this.rng = makeRng(SEED + 77);
-    this.list = [];
+    this.scene = scene;
+    this.cars = [];
+    this.rng = R.stream(C.SEED + 77);
   }
 
-  spawnInitial(count) {
-    for (let n = 0; n < count; n += 1) {
-      this.spawnOne(null, null);
-    }
-  }
+  TrafficManager.prototype.spawnOne = function () {
+    var rng = this.rng;
+    var spec = C.VEHICLES[Math.floor(rng() * C.VEHICLES.length)];
+    // pick a random street and a random point on it
+    var alongX = rng() < 0.5;
+    var line = alongX ? this.city.roadsX[Math.floor(rng() * this.city.roadsX.length)]
+                      : this.city.roadsZ[Math.floor(rng() * this.city.roadsZ.length)];
+    var pos = R.randRange(-220, 220);
+    var dir = rng() < 0.5 ? 1 : -1;
+    var x, z, heading;
+    if (alongX) { x = pos; z = line + (dir > 0 ? 3.5 : -3.5); heading = dir > 0 ? Math.PI / 2 : -Math.PI / 2; }
+    else { x = line + (dir > 0 ? -3.5 : 3.5); z = pos; heading = dir > 0 ? 0 : Math.PI; }
+    var v = V.makeVehicle(spec, x, z, heading, 'traffic', this.scene);
+    v.speed = R.randRange(8, 14);
+    v.dir = dir;
+    v.alongX = alongX;
+    v.line = line;
+    this.cars.push(v);
+    return v;
+  };
 
-  randomType() {
-    const roll = this.rng.next();
-    if (roll < 0.16) {
-      return "taxi";
-    }
-    if (roll < 0.26) {
-      return "pickup";
-    }
-    if (roll < 0.33) {
-      return "van";
-    }
-    if (roll < 0.4) {
-      return "sports";
-    }
-    return "sedan";
-  }
+  TrafficManager.prototype.init = function (count) {
+    for (var i = 0; i < count; i++) this.spawnOne();
+  };
 
-  spawnOne(px, py) {
-    for (let tries = 0; tries < 12; tries += 1) {
-      const i = this.rng.int(0, COLS);
-      const j = this.rng.int(0, ROWS);
-      const nbs = neighbors(i, j);
-      const nb = this.rng.pick(nbs);
-      const x = interX(i);
-      const y = interY(j);
-      if (px !== null && Math.hypot(x - px, y - py) < 420) {
-        continue;
-      }
-      let clear = true;
-      for (const c of this.list) {
-        if (Math.hypot(c.x - x, c.y - y) < 110) {
-          clear = false;
-          break;
-        }
-      }
-      if (!clear) {
-        continue;
-      }
-      const car = makeVehicle(this.randomType(), x, y, 0, "traffic");
-      car.leg = { ax: i, ay: j, bx: nb[0], by: nb[1] };
-      car.t = this.rng.range(0, 0.8);
-      car.cruise = this.rng.range(90, 135);
-      car.speed = car.cruise;
-      car.prevI = i;
-      car.prevJ = j;
-      this.list.push(car);
-      this.cars.push(car);
-      return car;
-    }
-    return null;
-  }
-
-  // A car is stolen: drop it from traffic and keep the streets full.
-  onStolen(car, px, py) {
-    const at = this.list.indexOf(car);
-    if (at >= 0) {
-      this.list.splice(at, 1);
-    }
-    this.spawnOne(px, py);
-  }
-
-  aheadBlocked(car, px, py) {
-    const hx = Math.cos(car.angle);
-    const hy = Math.sin(car.angle);
-    const obstacles = [];
-    for (const o of this.list) {
-      if (o !== car) {
-        obstacles.push({ x: o.x, y: o.y, r: 78 });
-      }
-    }
-    for (const o of this.cars) {
-      if (o === car || this.list.includes(o)) {
-        continue;
-      }
-      obstacles.push({ x: o.x, y: o.y, r: 72 });
-    }
-    if (px !== null && py !== null) {
-      obstacles.push({ x: px, y: py, r: 62 });
-    }
-    for (const o of obstacles) {
-      const dx = o.x - car.x;
-      const dy = o.y - car.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 > o.r * o.r) {
-        continue;
-      }
-      const along = dx * hx + dy * hy;
-      if (along > 8) {
-        return true;
-      }
+  // Is there a car (or the player car) ahead within look distance?
+  TrafficManager.prototype.aheadBlocked = function (car, allCars, playerCar, look) {
+    var hx = Math.sin(car.heading), hz = Math.cos(car.heading);
+    var list = allCars.concat(playerCar ? [playerCar] : []);
+    for (var i = 0; i < list.length; i++) {
+      var o = list[i];
+      if (o === car) continue;
+      var dx = o.x - car.x, dz = o.z - car.z;
+      var along = dx * hx + dz * hz;
+      var side = Math.abs(dx * hz - dz * hx);
+      if (along > 0 && along < look && side < 2.6) return true;
     }
     return false;
-  }
+  };
 
-  update(dt, player, driven) {
-    const px = player && !driven ? player.x : null;
-    const py = player && !driven ? player.y : null;
-    for (const car of this.list) {
-      const blocked = this.aheadBlocked(car, px, py);
-      const target = blocked ? 0 : car.cruise;
-      if (car.speed < target) {
-        car.speed = Math.min(target, car.speed + 70 * dt);
-      } else if (car.speed > target) {
-        car.speed = Math.max(target, car.speed - 240 * dt);
+  TrafficManager.prototype.update = function (dt, player, playerCar, parkedCars) {
+    var half = C.CITY_SIZE / 2;
+    for (var i = this.cars.length - 1; i >= 0; i--) {
+      var car = this.cars[i];
+      // respawn at the far edge if it left the city
+      if (Math.abs(car.x) > half - 10 || Math.abs(car.z) > half - 10 || car.z > C.WATER_Y - 4) {
+        this.scene.remove(car.group);
+        this.cars.splice(i, 1);
+        this.spawnOne();
+        continue;
       }
-      if (car.speed > 0.5) {
-        car.t += (car.speed * dt) / CELL;
+      // slow/stop for traffic ahead
+      var blocked = this.aheadBlocked(car, this.cars.concat(parkedCars), playerCar, 12);
+      var target = blocked ? 0 : R.randRange(9, 14);
+      car.speed += (target - car.speed) * Math.min(1, dt * 1.5);
+      // intersection: when close to a cross street, sometimes turn
+      var nearX = null, nearZ = null;
+      for (var k = 0; k < this.city.roadsX.length; k++) {
+        if (Math.abs(car.z - this.city.roadsX[k]) < 2.2) nearX = this.city.roadsX[k];
       }
-      if (car.t >= 1) {
-        car.t = 0;
-        car.prevI = car.leg.bx;
-        car.prevJ = car.leg.by;
-        const nbs = neighbors(car.leg.bx, car.leg.by).filter(
-          (n) => !(n[0] === car.leg.ax && n[1] === car.leg.ay),
-        );
-        const nb = this.rng.pick(nbs.length ? nbs : neighbors(car.leg.bx, car.leg.by));
-        car.leg = { ax: car.leg.bx, ay: car.leg.by, bx: nb[0], by: nb[1] };
+      for (var k2 = 0; k2 < this.city.roadsZ.length; k2++) {
+        if (Math.abs(car.x - this.city.roadsZ[k2]) < 2.2) nearZ = this.city.roadsZ[k2];
       }
-      const ax = interX(car.leg.ax);
-      const ay = interY(car.leg.ay);
-      const bx = interX(car.leg.bx);
-      const by = interY(car.leg.by);
-      const dx = bx - ax;
-      const dy = by - ay;
-      const len = Math.hypot(dx, dy) || 1;
-      const ux = dx / len;
-      const uy = dy / len;
-      const ease = Math.min(1, car.t / 0.16, (1 - car.t) / 0.16);
-      const off = LANE * ease;
-      car.x = ax + dx * car.t - uy * off;
-      car.y = ay + dy * car.t + ux * off;
-      const want = Math.atan2(dy, dx);
-      let diff = want - car.angle;
-      while (diff > Math.PI) {
-        diff -= Math.PI * 2;
+      if ((car.alongX && nearZ !== null) || (!car.alongX && nearX !== null)) {
+        if (this.rng() < dt * 0.25) {
+          // turn onto the cross street (no U-turns)
+          var turnLeft = this.rng() < 0.5;
+          if (car.alongX) {
+            car.alongX = false;
+            car.line = nearZ;
+            car.heading = turnLeft ? (car.dir > 0 ? 0 : Math.PI) : (car.dir > 0 ? Math.PI : 0);
+            car.dir = turnLeft ? (car.dir > 0 ? 1 : -1) : (car.dir > 0 ? -1 : 1);
+            car.z = nearZ + (car.heading === 0 ? -3.5 : 3.5);
+          } else {
+            car.alongX = true;
+            car.line = nearX;
+            car.heading = turnLeft ? (car.dir > 0 ? -Math.PI / 2 : Math.PI / 2) : (car.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
+            car.dir = turnLeft ? (car.dir > 0 ? -1 : 1) : (car.dir > 0 ? 1 : -1);
+            car.x = nearX + (car.heading === Math.PI / 2 ? 3.5 : -3.5);
+          }
+        }
       }
-      while (diff < -Math.PI) {
-        diff += Math.PI * 2;
-      }
-      car.angle += diff * Math.min(1, 7 * dt);
+      // move along current heading
+      car.x += Math.sin(car.heading) * car.speed * dt;
+      car.z += Math.cos(car.heading) * car.speed * dt;
+      // stay in the lane (nudge back to the line)
+      if (car.alongX) car.z += (car.line + (car.dir > 0 ? 3.5 : -3.5) - car.z) * Math.min(1, dt * 2);
+      else car.x += (car.line + (car.dir > 0 ? -3.5 : 3.5) - car.x) * Math.min(1, dt * 2);
+      car.group.position.set(car.x, 0, car.z);
+      car.group.rotation.y = car.heading;
     }
-    while (this.list.length < TARGET) {
-      if (!this.spawnOne(player ? player.x : null, player ? player.y : null)) {
-        break;
-      }
-    }
-  }
-}
+  };
 
-export { VEHICLE_TYPES };
+  window.SH_TRAFFIC = { TrafficManager: TrafficManager };
+})();
