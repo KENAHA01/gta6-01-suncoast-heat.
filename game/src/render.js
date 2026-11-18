@@ -36,6 +36,15 @@
     var dome = new THREE.Mesh(new THREE.SphereGeometry(800, 24, 16), domeMat);
     scene.add(dome);
     scene.userData.skyDomeMat = domeMat;
+    // Sunset sun: a big glowing disc low on the horizon, like the top
+    // entries' giant sun. It follows the sun's azimuth and grows + turns
+    // orange-pink at sunset, so the whole game has one strong identity.
+    var sunDiscMat = new THREE.MeshBasicMaterial({ color: 0xfff2c0, fog: false });
+    var sunDisc = new THREE.Mesh(new THREE.CircleGeometry(48, 32), sunDiscMat);
+    sunDisc.visible = false;
+    scene.add(sunDisc);
+    scene.userData.sunDisc = sunDisc;
+    scene.userData.sunDiscMat = sunDiscMat;
     // Clouds: flat white puffs drifting slowly over the city. They sell
     // the scale of the sky and make the horizon read as 3D depth.
     var cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, fog: false });
@@ -86,7 +95,13 @@
     scene.add(amb);
     var hemi = new THREE.HemisphereLight(0xbfd8ff, 0x5a4a3a, 0.35);
     scene.add(hemi);
-    return { sun: sun, amb: amb, hemi: hemi };
+    // Fill light from the south (+z), no shadows: it lifts the faces the
+    // camera usually sees (the rear of northbound cars, south facades),
+    // which the low western sun leaves in shadow at sunset.
+    var fill = new THREE.DirectionalLight(0xffe0c0, 0.3);
+    fill.position.set(0, 100, 250);
+    scene.add(fill);
+    return { sun: sun, amb: amb, hemi: hemi, fill: fill };
   }
 
   // Day-night: minutes 0-1440. Returns daylight factor 0..1.
@@ -97,12 +112,19 @@
     var day = Math.max(0, Math.min(1, elev * 1.6 + 0.25));
     var sun = lights.sun;
     sun.position.set(Math.cos(sunAngle) * 220, Math.max(20, elev * 220 + 30), 90);
-    sun.intensity = 0.15 + day * 1.0;
-    lights.amb.intensity = 0.18 + day * 0.4;
-    lights.hemi.intensity = 0.12 + day * 0.3;
+    // night floor raised: the old 0.15/0.18/0.12 left the night scenes
+    // nearly black; the top entries' nights stay readable (lit windows,
+    // neon, lamps). Day stays the same, night is now visible.
+    sun.intensity = 0.25 + day * 1.0;
+    // warm the sun itself at sunset: orange-pink light, long shadows.
+    if (day > 0.6) sun.color.setHex(0xffe8c0);
+    else if (day > 0.25) sun.color.setHex(0xff9a60);
+    else sun.color.setHex(0x8a9ac8);
+    lights.amb.intensity = 0.30 + day * 0.35;
+    lights.hemi.intensity = 0.20 + day * 0.25;
     var sky = new THREE.Color();
     if (day > 0.6) sky.setHex(0x87b5d6);
-    else if (day > 0.25) sky.setHex(0xe8a06a);     // sunset orange
+    else if (day > 0.25) sky.setHex(0xdd7a6a);     // sunset pink-orange
     else sky.setHex(0x1a2440);                     // night blue
     scene.background = sky;
     scene.fog.color.copy(sky);
@@ -111,14 +133,31 @@
     var domeMat = scene.userData.skyDomeMat;
     if (domeMat) {
       if (day > 0.6) domeMat.color.setHex(0xffffff);
-      else if (day > 0.25) domeMat.color.setHex(0xffc090);
+      else if (day > 0.25) domeMat.color.setHex(0xffa0a0);
       else domeMat.color.setHex(0x33405e);
     }
     var cloudMat = scene.userData.cloudMat;
     if (cloudMat) {
       if (day > 0.6) cloudMat.color.setHex(0xffffff);
-      else if (day > 0.25) cloudMat.color.setHex(0xf0c0a0);
+      else if (day > 0.25) cloudMat.color.setHex(0xf0a0a0);
       else cloudMat.color.setHex(0x2a3348);
+    }
+    // place the sun disc in the sun's direction, far out, facing the
+    // camera (lookAt origin). Big and orange at sunset, pale at noon,
+    // hidden at night.
+    var disc = scene.userData.sunDisc;
+    if (disc) {
+      var sd = new THREE.Vector3(sun.position.x, sun.position.y, sun.position.z).normalize();
+      disc.position.set(sd.x * 740, Math.max(30, sd.y * 740), sd.z * 740);
+      disc.lookAt(0, 40, 0);
+      if (day > 0.25) {
+        disc.visible = true;
+        var s = day > 0.6 ? 1.0 : 1.5;
+        disc.scale.set(s, s, 1);
+        scene.userData.sunDiscMat.color.setHex(day > 0.6 ? 0xfff2c0 : 0xff8a50);
+      } else {
+        disc.visible = false;
+      }
     }
     return day;
   }

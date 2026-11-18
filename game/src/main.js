@@ -64,8 +64,23 @@
       prompt: '',
       saveFlash: 0,
       endTimer: 0,
+      mapOpen: false,           // city map overlay open (paused)
       shot: null                // staged scene name from ?shot=
     };
+  }
+
+  // City map overlay: opens on top of the paused game.
+  function openMap() {
+    game.mapOpen = true;
+    game.state = 'paused';
+    window.SH_HUD.hideCenter(hud);
+    hud.map.style.display = 'block';
+    window.SH_MAP.draw(hud, game);
+  }
+  function closeMap() {
+    game.mapOpen = false;
+    game.state = 'playing';
+    hud.map.style.display = 'none';
   }
 
   function init() {
@@ -137,6 +152,7 @@
       // wasted, busted), so the minimap is never a black box.
       window.SH_HUD.updateHUD(hud, game);
       window.SH_HUD.drawMinimap(hud, game);
+      if (game.mapOpen) window.SH_MAP.draw(hud, game);
       IN.endFrame();
     }
     requestAnimationFrame(frame);
@@ -220,12 +236,37 @@
       if (game.endTimer > 1 && IN.consumePressed('r')) respawn();
       return;
     }
+    // paused: P resumes, N toggles the city map, S saves. (The old code
+    // only checked P in the playing branch, so a paused game could never
+    // resume; the map overlay needs the same treatment.)
+    if (game.state === 'paused') {
+      if (game.mapOpen) {
+        if (IN.consumePressed('n') || IN.consumePressed('escape') || IN.consumePressed('p')) closeMap();
+      } else {
+        if (IN.consumePressed('p')) {
+          game.state = 'playing';
+          window.SH_HUD.hideCenter(hud);
+        } else if (IN.consumePressed('n')) {
+          openMap();
+        } else if (IN.consumePressed('s')) {
+          if (window.SH_SAVE.save(game)) {
+            window.SH_HUD.showDialog(hud, 'System', 'Game saved.', 2500);
+          }
+        }
+      }
+      return;
+    }
     if (game.state !== 'playing') return;
 
     // pause
     if (IN.consumePressed('p')) {
       game.state = 'paused';
-      window.SH_HUD.showCenter(hud, 'PAUSED', 'Press P to resume - S to save');
+      window.SH_HUD.showCenter(hud, 'PAUSED', 'Press P to resume - S to save - N for city map');
+      return;
+    }
+    // city map (from live play)
+    if (IN.consumePressed('n')) {
+      openMap();
       return;
     }
 

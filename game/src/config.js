@@ -32,11 +32,11 @@
 
   // Camera (third person, behind and above the player).
   // Low and close on purpose: a high steep camera reads as top-down 2D.
-  // At 4.2m up and 13m back the car shows its rear and sides, building
-  // facades and the road ahead read as real 3D depth.
-  C.CAM_DIST = 13;
-  C.CAM_HEIGHT = 4.2;
-  C.CAM_LOOK_UP = 1.8;
+  // Chase-cam framing like the top entries: close behind the car so the
+  // road stretches ahead and the world feels big and fast.
+  C.CAM_DIST = 9.5;
+  C.CAM_HEIGHT = 3.0;
+  C.CAM_LOOK_UP = 2.0;
 
   // Vehicles: name, top speed (m/s), accel, brake, turn, grip, colour, size
   C.VEHICLES = [
@@ -63,6 +63,8 @@
   C.WANTED_DECAY_SEC = 45;    // seconds hidden before one star drops
   C.POLICE_FOOT_SPEED = 5.5;
   C.POLICE_CAR_TOP = 32;
+  // Named police units for the HUD response list (Solmarina PD).
+  C.POLICE_UNITS = ['SPD-12', 'SPD-27', 'SPD-03', 'SPD-41', 'SPD-08', 'SPD-19', 'SPD-33', 'SPD-56'];
 
   // Clock / day-night (game minutes per real second)
   C.MIN_PER_SEC = 2;

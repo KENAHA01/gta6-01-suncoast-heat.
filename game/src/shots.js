@@ -14,7 +14,7 @@
 
     if (shot === 'title') {
       game.state = 'title';
-      game.minutes = 10 * 60;
+      game.minutes = 17 * 60 + 40;   // sunset: big sun + pink sky behind the title
       game.player.x = 0; game.player.z = -60;
       game.player.mesh.position.set(0, 0, -60);
       if (center) center.style.display = 'block';
@@ -22,8 +22,10 @@
     }
 
     if (shot === 'chase') {
-      // player driving a Palmetto GT down Palmetto Strip, 3 stars, police ahead
-      game.minutes = 14 * 60;
+      // player driving a Palmetto GT down Palmetto Strip at SUNSET, 3 stars,
+      // police ahead, mission 4 (Hot Wheels) active: lose the heat.
+      // 17:20, not 18:20: the sun sets at 18:00, so 18:20 is already night.
+      game.minutes = 17 * 60 + 20;
       var gt = null;
       game.parked.forEach(function (v) {
         if (v.spec.name === 'Palmetto GT') gt = v;
@@ -81,22 +83,32 @@
         c.group.position.set(c.x, 0, c.z);
         c.group.rotation.y = Math.PI;
       });
-      game.player.money = 1250;
+      game.player.money = 38420;
+      // mission 4 (Hot Wheels) active so the mission panel + dialog show
+      // a chase job; the player is already in the GT, so the objective
+      // reads "Lose the heat".
+      game.missions.idx = 3;
+      game.missions.start();
       return;
     }
 
     if (shot === 'mission') {
-      // mission 2 briefing: Marisol dialog + beacon at Marina Bay
-      game.minutes = 11 * 60;
+      // mission 2 briefing at NIGHT: Marisol dialog with portrait, neon
+      // and lit windows behind, two thugs near the marina for the
+      // night-combat feel.
+      game.minutes = 21 * 60 + 40;
       game.player.x = 0; game.player.z = 120;
       game.player.mesh.position.set(0, 0, 120);
       game.player.money = 400;
       game.missions.idx = 1;
       game.missions.start();
       H.showDialog(
-        { dialog: document.getElementById('hud-dialog'), dialogName: document.getElementById('hud-dialog-name'), dialogText: document.getElementById('hud-dialog-text') },
+        { dialog: document.getElementById('hud-dialog'), dialogName: document.getElementById('hud-dialog-name'), dialogText: document.getElementById('hud-dialog-text'), portrait: document.getElementById('hud-portrait') },
         'Marisol', 'A package is waiting at the marina. Pick it up, then drop it at Las Brisas.'
       );
+      // two thugs loitering near the marina, for the night scene
+      game.combat.spawnEnemy(6, 132);
+      game.combat.spawnEnemy(-8, 138);
       return;
     }
 

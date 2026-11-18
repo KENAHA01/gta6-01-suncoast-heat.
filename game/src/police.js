@@ -58,7 +58,14 @@
     this.roadblocks = [];
     this.rng = R.stream(C.SEED + 301);
     this.spawnTimer = 0;
+    this.unitIdx = 0;           // rotating index into C.POLICE_UNITS
   }
+
+  Police.prototype.nextUnit = function () {
+    var name = C.POLICE_UNITS[this.unitIdx % C.POLICE_UNITS.length];
+    this.unitIdx++;
+    return name;
+  };
 
   Police.prototype.addHeat = function (amount) {
     this.heat = Math.min(100, this.heat + amount);
@@ -80,6 +87,7 @@
     v.group = buildPoliceCarMesh();
     v.group.position.set(x, 0, z);
     this.scene.add(v.group);
+    v.unit = this.nextUnit();
     v.speed = 10;
     this.cars.push(v);
   };
@@ -107,6 +115,8 @@
       v.group = buildPoliceCarMesh();
       v.group.position.set(px, 0, pz);
       v.group.rotation.y = playerHeading + Math.PI / 2;
+      v.unit = this.nextUnit();
+      v.roadblock = true;
       this.scene.add(v.group);
       this.roadblocks.push(v);
     }

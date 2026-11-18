@@ -83,8 +83,9 @@
       if (v < C.WATER_Y + 40) roadsZ.push(v);
     }
 
-    // Roads: dark strips along every street line
-    var roadMat = mat(0x2a2a2e);
+    // Roads: dark strips along every street line. Lighter than before:
+    // near-black asphalt read as a void at sunset; this reads as road.
+    var roadMat = mat(0x4a4a52);
     roadsX.forEach(function (z) {
       var r = new THREE.Mesh(new THREE.PlaneGeometry(C.CITY_SIZE, C.ROAD_WIDTH), roadMat);
       r.rotation.x = -Math.PI / 2;
@@ -272,11 +273,12 @@
               box(d * 0.7, 0.9, 0.4, awnCol, x, 3.6, z + face.dir * (d / 2 + 0.15), group);
             }
           }
-          // lit windows: a few warm glowing windows on the street face,
-          // so facades feel inhabited at dusk and night.
-          if (R.chance(0.35)) {
+          // lit windows: warm glowing windows on the street face, so
+          // facades feel inhabited at dusk and night. More of them now:
+          // night life is half the top entries' look.
+          if (R.chance(0.5)) {
             var litMat = new THREE.MeshLambertMaterial({ color: 0xffe0a0, emissive: 0x775522 });
-            for (var lw = 0; lw < 2; lw++) {
+            for (var lw = 0; lw < 3; lw++) {
               var ly = 2.4 + R.randInt(0, Math.max(0, floors - 1)) * 5;
               var lo = R.randRange(-w * 0.25, w * 0.25);
               var win;
@@ -350,6 +352,63 @@
       crown.position.set(px, 6.4, C.WATER_Y - 8);
       group.add(crown);
       trees.push({ x: px, z: C.WATER_Y - 8 });
+    }
+
+    // Neon billboards: big glowing signs with OUR original Solmarina
+    // names, on poles along the main strip. Canvas-drawn text on an
+    // unlit plane, so they glow at night like real neon. They face +z
+    // (south), toward a camera driving the strip heading north.
+    function makeSign(text, sub, fg, bg) {
+      var cv = document.createElement('canvas');
+      cv.width = 512; cv.height = 160;
+      var cx = cv.getContext('2d');
+      cx.fillStyle = bg;
+      cx.fillRect(0, 0, 512, 160);
+      cx.strokeStyle = fg; cx.lineWidth = 6;
+      cx.strokeRect(8, 8, 496, 144);
+      cx.fillStyle = fg;
+      cx.textAlign = 'center';
+      cx.font = 'bold 62px Arial';
+      cx.fillText(text, 256, 80);
+      cx.font = 'bold 28px Arial';
+      cx.fillText(sub, 256, 128);
+      var tex = new THREE.CanvasTexture(cv);
+      return new THREE.Mesh(
+        new THREE.PlaneGeometry(16, 5),
+        new THREE.MeshBasicMaterial({ map: tex, fog: false })
+      );
+    }
+    var signDefs = [
+      { text: 'SOLMARINA FM', sub: '88.1 - NEON DRIVE', fg: '#ff5aa0', bg: '#1a0a18', z: -104 },
+      { text: 'CLUB PALMETTO', sub: 'DANCE ALL NIGHT', fg: '#4ae8ff', bg: '#08131a', z: 0 },
+      { text: 'MARINA BAY HOTEL', sub: 'ROOMS - POOL - BAR', fg: '#ffd23e', bg: '#141008', z: 104 }
+    ];
+    signDefs.forEach(function (sd) {
+      var sign = makeSign(sd.text, sd.sub, sd.fg, sd.bg);
+      sign.position.set(12, 6.5, sd.z);
+      group.add(sign);
+      var poleL = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 4, 6), poleMat);
+      poleL.position.set(5, 2, sd.z);
+      group.add(poleL);
+      var poleR = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 4, 6), poleMat);
+      poleR.position.set(19, 2, sd.z);
+      group.add(poleR);
+    });
+
+    // Palm boulevard: palms lining both sidewalks of the main strip
+    // (x = +-10.5), so the drive into the sunset feels like a real
+    // coastal boulevard. Same sphere-crown palm as the beach.
+    for (var bp = -156; bp <= 156; bp += 26) {
+      [-10.5, 10.5].forEach(function (bx) {
+        var btrunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.32, 6, 6), palmTrunk);
+        btrunk.position.set(bx, 3, bp);
+        group.add(btrunk);
+        var bcrown = new THREE.Mesh(new THREE.SphereGeometry(1.9, 7, 5), palmTop);
+        bcrown.scale.y = 0.55;
+        bcrown.position.set(bx, 6.4, bp);
+        group.add(bcrown);
+        trees.push({ x: bx, z: bp });
+      });
     }
 
     // Collision helpers

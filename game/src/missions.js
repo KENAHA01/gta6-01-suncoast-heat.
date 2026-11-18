@@ -87,11 +87,11 @@
     this.hideBeacon();
     var step = this.currentStep();
     if (!step || step.x === undefined) return;
-    var geo = new THREE.CylinderGeometry(1.6, 1.6, 30, 12, 1, true);
+    var geo = new THREE.CylinderGeometry(1.6, 1.6, 18, 12, 1, true);
     var m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-      color: 0xffd23e, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false
+      color: 0xffd23e, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false
     }));
-    m.position.set(step.x, 15, step.z);
+    m.position.set(step.x, 9, step.z);
     this.scene.add(m);
     this.beacon = m;
   };
