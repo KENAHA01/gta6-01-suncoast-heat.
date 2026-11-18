@@ -37,7 +37,12 @@ export function drawHud(ctx, state, city) {
   ctx.fillText("$ " + state.money.toLocaleString("en-US"), 28, 62);
   ctx.fillStyle = "#cfd6dd";
   ctx.font = "13px Arial, sans-serif";
-  ctx.fillText("Fists", 150, 62);
+  if (state.driving) {
+    const kmh = Math.round(Math.abs(state.driving.speed) * 0.36);
+    ctx.fillText(state.driving.name + "  •  " + kmh + " km/h", 150, 62);
+  } else {
+    ctx.fillText("Fists", 150, 62);
+  }
 
   ctx.fillStyle = "rgba(10, 12, 14, 0.55)";
   ctx.fillRect(VIEW_W - 246, 14, 230, 64);
@@ -61,6 +66,20 @@ export function drawHud(ctx, state, city) {
     ctx.fillRect(16, VIEW_H - 44, w, 30);
     ctx.fillStyle = "#ffd640";
     ctx.fillText("◆ " + state.objective, 32, VIEW_H - 23);
+  }
+
+  if (state.mode === "playing") {
+    const prompt = state.driving ? "E - Exit car" : state.nearCar ? "E - Steal car" : null;
+    if (prompt) {
+      ctx.font = "bold 15px Arial, sans-serif";
+      const w = ctx.measureText(prompt).width + 28;
+      ctx.fillStyle = "rgba(10, 12, 14, 0.65)";
+      ctx.fillRect((VIEW_W - w) / 2, VIEW_H - 84, w, 30);
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "center";
+      ctx.fillText(prompt, VIEW_W / 2, VIEW_H - 63);
+      ctx.textAlign = "left";
+    }
   }
 
   drawMinimap(ctx, state, city);
@@ -136,6 +155,17 @@ function drawMinimap(ctx, state, city) {
     ctx.fillRect(ox + b.x * scale, oy + b.y * scale, Math.max(1, b.w * scale), Math.max(1, b.h * scale));
   }
 
+  for (const car of state.props.cars) {
+    if (car.kind === "driven") {
+      ctx.fillStyle = "#ffd640";
+    } else if (car.kind === "traffic") {
+      ctx.fillStyle = "#7ec8f7";
+    } else {
+      ctx.fillStyle = "#9aa5ad";
+    }
+    ctx.fillRect(ox + car.x * scale - 1.5, oy + car.y * scale - 1.5, 3, 3);
+  }
+
   if (state.marker) {
     ctx.fillStyle = "#ffd640";
     ctx.beginPath();
@@ -182,7 +212,7 @@ export function drawTitle(ctx, timeMs) {
   }
   ctx.font = "16px Arial, sans-serif";
   ctx.fillStyle = "#cfd6dd";
-  ctx.fillText("WASD / arrows to walk  •  Mouse to look  •  M to mute", VIEW_W / 2, 530);
+  ctx.fillText("WASD / arrows to walk  •  E to steal a car  •  M to mute", VIEW_W / 2, 530);
   ctx.fillText("Dario Cruz  •  Marisol  •  Marina Bay  •  Palmetto Strip", VIEW_W / 2, 560);
   ctx.restore();
 }

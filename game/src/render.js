@@ -26,6 +26,8 @@ import {
   roadX,
   roadY,
 } from "./config.js";
+import { drawVehicle } from "./vehicles.js";
+import { drawPedestrian } from "./pedestrians.js";
 
 export class Camera {
   constructor() {
@@ -183,10 +185,18 @@ export function drawWorld(ctx, city, cam, state, timeMs) {
   }
 
   for (const car of state.props.cars) {
-    drawCar(ctx, car);
+    drawVehicle(ctx, car);
   }
 
-  drawPlayer(ctx, state.player);
+  if (state.peds) {
+    for (const ped of state.peds.list) {
+      drawPedestrian(ctx, ped);
+    }
+  }
+
+  if (!state.driving) {
+    drawPlayer(ctx, state.player);
+  }
 
   const light = city.daylight(state.clock);
   if (light < 0.98) {
@@ -194,32 +204,6 @@ export function drawWorld(ctx, city, cam, state, timeMs) {
     ctx.fillRect(cam.x, cam.y, VIEW_W, VIEW_H);
   }
 
-  ctx.restore();
-}
-
-function drawCar(ctx, car) {
-  ctx.save();
-  ctx.translate(car.x, car.y);
-  ctx.rotate(car.angle || 0);
-  ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
-  ctx.fillRect(-26, -12, 52, 26);
-  ctx.fillStyle = car.police ? "#1d3557" : car.color;
-  ctx.fillRect(-24, -13, 48, 26);
-  ctx.fillStyle = "#bfe3ee";
-  ctx.fillRect(-8, -10, 14, 20);
-  ctx.fillStyle = car.police ? "#ffffff" : "rgba(255,255,255,0.25)";
-  ctx.fillRect(14, -10, 6, 20);
-  if (car.police) {
-    ctx.fillStyle = "#d62828";
-    ctx.fillRect(-2, -13, 8, 5);
-    ctx.fillStyle = "#2a6fdb";
-    ctx.fillRect(-2, 8, 8, 5);
-  }
-  ctx.fillStyle = "#141414";
-  ctx.fillRect(-18, -16, 10, 4);
-  ctx.fillRect(-18, 12, 10, 4);
-  ctx.fillRect(8, -16, 10, 4);
-  ctx.fillRect(8, 12, 10, 4);
   ctx.restore();
 }
 

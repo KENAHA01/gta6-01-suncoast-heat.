@@ -23,6 +23,9 @@ export const WORLD_H = CITY_H + BAY_H + BEACH_H;
 export const WALK_SPEED = 190;
 export const STEP = 1 / 60;
 
+export const TRAFFIC_COUNT = 10;
+export const PED_COUNT = 18;
+
 export const BRIDGE_ROAD = 6;
 
 export const PARKS = [

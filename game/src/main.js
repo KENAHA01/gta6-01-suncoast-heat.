@@ -8,6 +8,8 @@ import {
   STEP,
   PLAYER_START,
   GAME_TITLE,
+  TRAFFIC_COUNT,
+  PED_COUNT,
 } from "./config.js";
 import { City } from "./city.js";
 import { Camera, drawWorld } from "./render.js";
@@ -15,6 +17,9 @@ import { drawHud, drawTitle, drawEnd } from "./hud.js";
 import { Input } from "./input.js";
 import { AudioSys } from "./audio.js";
 import { stageShot } from "./shots.js";
+import { makeVehicle, updateVehicle, nearestVehicle } from "./vehicles.js";
+import { TrafficManager } from "./traffic.js";
+import { PedestrianManager } from "./pedestrians.js";
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -34,6 +39,8 @@ const state = {
   marker: null,
   muted: false,
   shot: null,
+  driving: null,
+  nearCar: false,
   player: {
     x: PLAYER_START.x,
     y: PLAYER_START.y,
@@ -46,6 +53,11 @@ const state = {
   },
 };
 
+const traffic = new TrafficManager(city, state.props.cars);
+const peds = new PedestrianManager(city);
+state.traffic = traffic;
+state.peds = peds;
+
 window.__game = state;
 window.__city = city;
 document.title = GAME_TITLE;
@@ -55,6 +67,22 @@ const shotName = params.get("shot");
 if (shotName) {
   state.shot = shotName;
   stageShot(state, city, shotName);
+}
+
+if (!state.shot) {
+  const parked = [
+    makeVehicle("sedan", 490, 300, 0, "parked"),
+    makeVehicle("pickup", 540, 340, Math.PI / 2, "parked"),
+    makeVehicle("taxi", 1660, 1080, 0, "parked"),
+    makeVehicle("van", 1710, 1120, Math.PI, "parked"),
+    makeVehicle("sports", 400, 1920, 0, "parked"),
+    makeVehicle("sedan", 1800, 1920, Math.PI, "parked"),
+  ];
+  for (const car of parked) {
+    state.props.cars.push(car);
+  }
+  traffic.spawnInitial(TRAFFIC_COUNT);
+  peds.spawnInitial(PED_COUNT);
 }
 
 function playerBoxBlocked(px, py) {
@@ -85,9 +113,87 @@ function movePlayer(dt) {
   }
 }
 
+function driveCar(dt) {
+  const car = state.driving;
+  const axis = input.moveAxis();
+  const ctl = {
+    throttle: input.down("w", "W", "ArrowUp"),
+    brake: input.down("s", "S", "ArrowDown"),
+    steer: axis.x,
+  };
+  updateVehicle(car, ctl, dt, city, state.props.cars);
+  state.player.x = car.x;
+  state.player.y = car.y;
+  state.player.face = car.angle;
+}
+
+function tryEnterCar() {
+  const car = nearestVehicle(state.player.x, state.player.y, state.props.cars, 55);
+  if (!car) {
+    return;
+  }
+  if (car.kind === "traffic") {
+    traffic.onStolen(car, state.player.x, state.player.y);
+  }
+  car.kind = "driven";
+  car.speed = 0;
+  car.vx = 0;
+  car.vy = 0;
+  state.driving = car;
+  state.player.moving = false;
+  state.nearCar = false;
+  state.objective = "Drive the " + car.name;
+  audio.ensure();
+  audio.blip(520, 0.08, "square", 0.05);
+}
+
+function exitCar() {
+  const car = state.driving;
+  const px = state.player.x;
+  const py = state.player.y;
+  const spots = [
+    [Math.cos(car.angle + Math.PI / 2), Math.sin(car.angle + Math.PI / 2)],
+    [Math.cos(car.angle - Math.PI / 2), Math.sin(car.angle - Math.PI / 2)],
+    [Math.cos(car.angle), Math.sin(car.angle)],
+    [-Math.cos(car.angle), -Math.sin(car.angle)],
+  ];
+  let placed = false;
+  for (const s of spots) {
+    const nx = car.x + s[0] * 36;
+    const ny = car.y + s[1] * 36;
+    if (!playerBoxBlocked(nx, ny)) {
+      state.player.x = nx;
+      state.player.y = ny;
+      placed = true;
+      break;
+    }
+  }
+  if (!placed) {
+    state.player.x = px;
+    state.player.y = py;
+  }
+  car.kind = "parked";
+  car.speed = 0;
+  car.vx = 0;
+  car.vy = 0;
+  state.driving = null;
+  state.player.face = car.angle;
+  state.objective = "Explore Solmarina";
+  audio.blip(330, 0.08, "square", 0.05);
+}
+
 function update(dt) {
   if (state.mode === "playing") {
-    movePlayer(dt);
+    if (state.driving) {
+      driveCar(dt);
+    } else {
+      movePlayer(dt);
+      state.nearCar = !!nearestVehicle(state.player.x, state.player.y, state.props.cars, 55);
+    }
+    if (!state.shot) {
+      traffic.update(dt, state.player, state.driving);
+      peds.update(dt, state.props.cars, state.driving ? null : state.player);
+    }
     if (!state.shot) {
       state.clock += dt;
     }
@@ -150,6 +256,12 @@ function frame(now) {
       state.player.health = 100;
       state.wanted = 0;
       state.dialog = null;
+    }
+  } else if (input.wasPressed("e", "E")) {
+    if (state.driving) {
+      exitCar();
+    } else {
+      tryEnterCar();
     }
   } else if (input.wasPressed("m", "M")) {
     state.muted = !state.muted;

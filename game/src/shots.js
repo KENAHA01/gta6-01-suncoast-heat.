@@ -4,6 +4,7 @@
 // dialog so the same URL always renders the same picture.
 
 import { MARINA_MARKER } from "./config.js";
+import { makeVehicle } from "./vehicles.js";
 
 export function stageShot(state, city, name) {
   const p = state.player;
@@ -29,11 +30,23 @@ export function stageShot(state, city, name) {
     p.y = 415;
     p.face = 0;
     p.health = 68;
-    state.props.cars = [
-      { x: 1400, y: 415, angle: 0, color: "#e4572e", police: false },
-      { x: 1060, y: 415, angle: 0, color: "#1d3557", police: true },
-      { x: 880, y: 415, angle: 0, color: "#1d3557", police: true },
-    ];
+    const driven = makeVehicle("sports", 1250, 415, 0, "driven");
+    driven.speed = 300;
+    driven.vx = 300;
+    state.driving = driven;
+    const cop1 = makeVehicle("sedan", 1060, 415, 0, "traffic");
+    cop1.police = true;
+    cop1.speed = 210;
+    const cop2 = makeVehicle("sedan", 880, 415, 0, "traffic");
+    cop2.police = true;
+    cop2.speed = 210;
+    const taxi = makeVehicle("taxi", 1800, 415, 0, "traffic");
+    taxi.speed = 110;
+    const van = makeVehicle("van", 1250, 611, Math.PI / 2, "traffic");
+    van.speed = 95;
+    const pickup = makeVehicle("pickup", 1430, 219, Math.PI, "traffic");
+    pickup.speed = 100;
+    state.props.cars = [driven, cop1, cop2, taxi, van, pickup];
     return;
   }
 
